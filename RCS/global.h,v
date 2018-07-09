@@ -1,0 +1,278 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.8;
+
+1.8
+date	2004.09.10.11.43.48;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.09.16.15.44;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.04.23.56.41;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.13.01.45;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Various global definitions and variables.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __global_h__
+#define __global_h__
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <errno.h>
+
+#define FILE_H_HAVE	(1)
+#include "extern.h"
+
+EXTERN volatile int DbgLevel INITVALUE(0) ;
+EXTERN FILE *DBGDEV INITVALUE(0) ;
+EXTERN char *DbgFile INITVALUE(0) ;
+
+#define DODBG(a)        if( DbgLevel >= a ) fprintf
+
+#define ELEMENTS(a)     (sizeof(a)/sizeof(a[0]))
+
+#define CP (char*)
+#define UCP (u_char*)
+
+#define STRMATCH(a,b)	( (a) && (b) && (strcasecmp( CP(a), CP(b) ) == 0 ) )
+#define STRCASECMP(a,b)	( strcasecmp( CP(a), CP(b) ) )
+
+#ifndef linux
+#define PTHREAD_MUTEX_TIMED_NP PTHREAD_MUTEX_NORMAL
+#define PTHREAD_MUTEX_FAST_NP PTHREAD_MUTEX_TIMED_NP
+#endif
+
+EXTERN int iSigRestart INITVALUE(0) ;
+
+typedef struct { 
+    unsigned char *in ; unsigned char *key ; unsigned char *value ; 
+} sParse ;
+
+#define TOKEN_CMD_MAXLINE	(4096)
+#define TOKEN_CMD_MAXARGS	(64)
+typedef struct {
+    u_char line[TOKEN_CMD_MAXLINE] ;
+    u_char *(cmd[TOKEN_CMD_MAXARGS]) ;
+    int nCmds ;
+} sCmd ;
+
+#define timer_cmp(tvp, OP, uvp )\
+    ( ( (tvp).tv_sec OP (uvp).tv_sec ) ||\
+      ( ( (tvp).tv_sec == (uvp).tv_sec ) &&\
+      ( ( (tvp).tv_usec OP (uvp).tv_usec) ) ) )
+
+EXTERN u_char *test_target_0 INITVALUE(0) ;
+
+EXTERN time_t StartTicks ;
+EXTERN u_char NameInUT[256] ;
+
+EXTERN u_char *log_prefix INITVALUE(0) ;
+EXTERN u_char *log_suffix INITVALUE(0) ;
+
+EXTERN u_char *this_host INITVALUE(0) ;
+
+EXTERN u_char *status_dir INITVALUE(0) ;
+EXTERN u_char *status_file INITVALUE(0) ;
+
+EXTERN u_char *http_port INITVALUE(0) ;
+EXTERN u_char *xml_port INITVALUE(0) ;
+
+EXTERN volatile bool bRunning INITVALUE(true) ;
+EXTERN volatile bool bDoRestart INITVALUE(false) ;
+
+#define MAXDEV		(32)
+#define MAXITEM		(12)
+#define MAXDEVSTR	(32)
+EXTERN char gStatus[MAXDEV][MAXITEM][MAXDEVSTR] ;
+EXTERN int nStatus INITVALUE(0) ;
+EXTERN int gMaxLen[MAXITEM] ;
+EXTERN time_t status_time INITVALUE(0) ;
+
+EXTERN double EpochMET INITVALUE(0.0) ;
+EXTERN char cVersion[64] ;
+
+#include "logging.h"
+#include "errors.h"
+
+#endif // __global_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.8
+log
+@Working system. Backing up.
+@
+text
+@d6 1
+d11 1
+a11 1
+EXTERN volatile int DbgLevel INITVALUE(3) ;
+d25 7
+d36 2
+d39 2
+a40 2
+    u_char line[1024] ;
+    u_char *(cmd[64]) ;
+d63 1
+d65 2
+a66 1
+EXTERN volatile bool running INITVALUE(true) ;
+d68 1
+a68 1
+#define MAXDEV		(16)
+d77 1
+@
+
+
+1.7
+log
+@Working Version. SRS630 included.
+@
+text
+@d21 3
+@
+
+
+1.6
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d38 2
+a39 1
+EXTERN u_char StartTime[256] ;
+@
+
+
+1.5
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d10 3
+a12 3
+EXTERN int LogLevel INITVALUE(9) ;
+EXTERN FILE *LOGDEV INITVALUE(0) ;
+EXTERN char *LogFile INITVALUE(0) ;
+d14 1
+a14 1
+#define DOLOG(a)        if( LogLevel >= a ) fprintf
+d37 2
+a38 1
+EXTERN u_char *test_port_0 INITVALUE(0) ;
+d60 2
+d63 1
+@
+
+
+1.4
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d28 1
+d47 1
+a47 1
+EXTERN u_char *html_port INITVALUE(0) ;
+@
+
+
+1.3
+log
+@Working.
+@
+text
+@d51 1
+a51 1
+#define MAXITEM		(8)
+@
+
+
+1.2
+log
+@Working. Supports SR630.
+@
+text
+@d31 3
+a33 3
+        ( ( (tvp).tv_sec OP (uvp).tv_sec ) ||\
+          ( ( (tvp).tv_sec == (uvp).tv_sec ) &&\
+          ( ( (tvp).tv_usec OP (uvp).tv_usec) ) ) )
+d46 12
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d5 1
+d11 2
+a13 1
+#define LOGDEV          stderr
+d25 23
+@

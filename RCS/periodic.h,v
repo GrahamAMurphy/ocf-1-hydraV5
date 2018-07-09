@@ -1,0 +1,157 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.4;
+
+1.4
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.09.16.15.44;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.04.23.56.41;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working. Supports SR630.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __Periodic_h__
+#define __Periodic_h__
+#pragma interface
+#include <sys/types.h>
+#include <sys/time.h>
+#include <pthread.h>
+#include <semaphore.h>
+
+const int MAX_P_REQUEST = 256 ;
+
+class Stream ;
+
+class Periodic {
+    static const int MaxP = 64 ;
+    struct periodic {
+	volatile int stream_id ;
+	volatile bool setup ;
+	volatile bool enabled ;
+	volatile bool once ;
+	u_char request[MAX_P_REQUEST] ;
+	volatile struct timeval run ;
+	struct timeval interval ;
+    } s_periodic[MaxP] ;
+    volatile int mostest ;
+    pthread_mutex_t periodic_mutex ;
+    void Setup(int, int, const u_char* ) ;
+
+public:
+    Periodic() ;
+    void CheckAndQueue(void) ;
+    int Add(int, const void* ) ;
+    void Schedule( int, int ) ;
+    void SetPeriod(int, int ) ;
+    void Enable( int ) ;
+    void Disable( int ) ;
+} ;
+
+EXTERN Periodic *PeriodicQ INITVALUE(0) ;
+
+#endif // __Periodic_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.4
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@@
+
+
+1.3
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@a13 1
+    int mostest ;
+d16 4
+a19 4
+	int stream_id ;
+	bool setup ;
+	bool enabled ;
+	bool once ;
+d21 1
+a21 1
+	struct timeval run ;
+d24 1
+@
+
+
+1.2
+log
+@Working.
+@
+text
+@d26 1
+a26 1
+    void Setup(int, int, const u_char*, int ) ;
+d31 3
+a33 1
+    int Add(int, const void*, int ) ;
+a34 1
+    void Schedule( int, int ) ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a9 1
+const int MAXP = 64 ;
+d15 1
+d24 1
+a24 1
+    } s_periodic[MAXP] ;
+@

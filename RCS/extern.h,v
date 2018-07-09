@@ -1,0 +1,71 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.1;
+
+1.1
+date	2004.05.03.13.01.45;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Enables extern handling.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __extern_h__
+
+#define __extern_h__
+
+#if ( FILE_H_HAVE == FILE_H_NEED )
+
+#define INITZERO = 0 
+#define INITVALUE(a) = (a)
+#define EXTERN
+
+#else
+
+#define INITZERO
+#define INITVALUE(a)
+#define EXTERN extern
+
+#endif // __IS_GLOBAL_C__
+
+#endif // __extern_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@@

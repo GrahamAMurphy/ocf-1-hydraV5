@@ -1,0 +1,1153 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.9;
+
+1.9
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.07.22.18.34.23;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working. Supports SR630.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#pragma implementation
+
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#include "global.h"
+#include "support.h"
+#include "logging.h"
+#include "httpserver.h"
+#include "xmlserver.h"
+
+Logging::Logging( const u_char *prefix )
+{
+    u_char dirname[1024] ;
+    u_char filename[1024] ;
+    u_char *p_dir ;
+
+    if( prefix == NULL ) {
+	Log = NULL ;
+    } else {
+
+	strncpy( CP dirname, CP prefix, 1024 ) ;
+	p_dir = UCP strrchr( CP dirname, '/' ) ;
+
+	if( p_dir ) {
+	    *p_dir = '\0' ;
+	    if( mktree( dirname ) ) {
+		perror( CP dirname ) ;
+		return ;
+	    }
+	    *p_dir = '/' ;
+	}
+
+	snprintf( CP filename, 1024, "%s.%s", prefix, NameInUT ) ;
+
+	if( log_suffix ) 
+	    snprintf( CP filename, 1024, "%s%s", prefix, log_suffix ) ;
+	Log = fopen( CP filename, "a" ) ;
+	if( Log ) 
+	    setvbuf( Log, 0, _IONBF, 0 ) ;
+    }
+    if( Log == NULL )
+	DODBG(0)(DBGDEV, "Transaction logging NOT ENABLED.\r\n" ) ;
+
+    pthread_mutexattr_t logging_mutex_attr ;
+    pthread_mutexattr_init( &logging_mutex_attr ) ;
+    pthread_mutexattr_settype( &logging_mutex_attr, PTHREAD_MUTEX_NORMAL ) ;
+    pthread_mutexattr_setprotocol( &logging_mutex_attr, PTHREAD_PRIO_INHERIT ) ;
+
+    pthread_mutex_init( &logging_mutex, &logging_mutex_attr ) ;
+    pthread_mutex_lock( &logging_mutex ) ;
+    pthread_mutex_unlock( &logging_mutex ) ;
+}
+
+
+Logging::~Logging( void )
+{
+    if( Log )
+	fclose( Log ) ;
+}
+
+void Logging::Lock( void )
+{
+    pthread_mutex_lock( &logging_mutex ) ;
+}
+
+void Logging::Unlock( void )
+{
+    pthread_mutex_unlock( &logging_mutex ) ;
+}
+
+void Logging::Write( const void *src, const void *level, const void *txt )
+{
+    time_t now ;
+    time( &now ) ;
+    struct tm *ut = gmtime( &now ) ;
+
+    if( ! Log ) return ;
+
+    fprintf( Log, "UT %04d-%02d-%02d %02d:%02d:%02d: %-4.4s (%s) %s\r\n",
+	ut->tm_year+1900,
+	ut->tm_mon+1,
+	ut->tm_mday,
+	ut->tm_hour,
+	ut->tm_min,
+	ut->tm_sec,
+	CP level, CP src, CP txt ) ;
+    fflush( Log ) ;
+}
+
+void Logging::L_Write_U( const void *src, const void *level, const void *txt )
+{
+    Lock() ;
+    Write( src, level, txt ) ;
+    Unlock() ;
+} ;
+
+void Logging::L_Command_U( const void *src, const void *cmd, const void *rtn )
+{
+    Lock() ;
+    Write( src, "CMD", cmd ) ;
+    Write( src, "RTN", rtn ) ;
+    Unlock() ;
+} ;
+
+// END OF LOGGING.
+
+#define MAXKEYS		(256)
+#define MAXWIDTH	(128)
+
+static struct status_log {
+    u_char *names[MAXKEYS] ;
+    u_char status[MAXKEYS][MAXWIDTH] ;
+    int l_name[MAXKEYS] ;
+    int l_key[MAXKEYS] ;
+    int l_value[MAXKEYS] ;
+    int n_attempts[MAXKEYS] ;
+    int updated[MAXKEYS] ;
+    double set_time[MAXKEYS] ;
+    int inuse ;
+    int wasused ;
+    long t_log_s, t_log_us ;
+    double d_t_log ;
+} s_status[MAX_Q_LOG] ;
+
+OCFStatus::OCFStatus( u_char *inDir )
+{
+
+    if( ! inDir ) {
+	bWriteStatus = false ;
+	strcpy( CP Dir, "" ) ;
+
+	// DODBG(0)( DBGDEV, "No OCF status logging directory given.\r\n" ) ;
+	// exit(0) ;
+    } else if( access( CP inDir, F_OK ) ) { // Not found.
+
+	DODBG(0)( DBGDEV, "OCF status logging directory not found.\n" ) ;
+	DODBG(0)( DBGDEV, "Will try to create directory: %s.\n", inDir ) ;
+	int status = mktree( inDir ) ;
+	if( status ) {
+	    DODBG(0)( DBGDEV, "Could not create directory: %s.\n", inDir ) ;
+	    exit(0) ;
+	} else {
+	    strncpy( CP Dir, CP inDir, 1024 ) ;
+	}
+
+	bWriteStatus = true ;
+
+    } else {
+	if( access( CP inDir, (X_OK|W_OK|R_OK) ) ) { 
+	    DODBG(0)( DBGDEV, 
+	    "Permissions for OCF status logging directory(%s) not as needed.\n",
+		inDir) ;
+	    exit(0) ;
+	} else {
+	    strncpy( CP Dir, CP inDir, 1024 ) ;
+	}
+
+	bWriteStatus = true ;
+    }
+
+    if( bWriteStatus ) {
+	DODBG(0)( DBGDEV, "OCF status logging directory is: %s.\n", Dir );
+    } else {
+	DODBG(0)( DBGDEV, "OCF status logging is NOT ENABLED.\n" ) ;
+    }
+
+    m_interval = 100 ;
+
+    for( int i = 0 ; i < MAX_Q_LOG ; i++ ) {
+	memset( s_status[i].status, 0, MAXKEYS*MAXWIDTH ) ;
+	for( int j = 0 ; j < MAXKEYS ; j++ ) {
+	    s_status[i].l_key[j] = 0 ;
+	    s_status[i].l_value[j] = 0 ;
+	    s_status[i].names[j] = 0 ;
+	    s_status[i].l_name[j] = 0 ;
+	    s_status[i].n_attempts[j] = 0 ;
+	    s_status[i].updated[j] = 0 ;
+	}
+	s_status[i].inuse = false ;
+	s_status[i].wasused = false ;
+    }
+    sem_init( &sem_writing, 0, 0 ) ;
+    q_log_a = 0 ;
+    q_log_p = 0 ;
+    t_requests = 1 ;
+
+    m_t_timer = 0 ;
+    m_t_writer = 0 ;
+
+    pthread_mutexattr_t logging_mutex_attr ;
+    pthread_mutexattr_init( &logging_mutex_attr ) ;
+    pthread_mutexattr_settype( &logging_mutex_attr, PTHREAD_MUTEX_NORMAL ) ;
+    pthread_mutexattr_setprotocol( &logging_mutex_attr, PTHREAD_PRIO_INHERIT ) ;
+
+    pthread_mutex_init( &ocf_logging_mutex, &logging_mutex_attr ) ;
+    pthread_mutex_lock( &ocf_logging_mutex ) ;
+    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+}
+
+void OCFStatus::SetInterval( int interval )
+{
+    m_interval = interval ;
+}
+
+void *RunOCFTimer( void * not_used )
+{
+    OCF_Status->LoggingTimer() ;
+    return( 0 ) ;
+}
+
+void *RunOCFWriter( void * not_used )
+{
+    OCF_Status->LoggingWriter() ;
+    return( 0 ) ;
+}
+
+void OCFStatus::StartThread( void )
+{
+    pthread_attr_t t_attribute ;
+
+    DODBG(9)( DBGDEV, "OCF_Status: about to create thread.\n" ) ;
+
+    pthread_attr_init( &t_attribute ) ;
+    pthread_create( &m_t_timer, &t_attribute, RunOCFTimer, 0 ) ;
+
+    sleep(1) ;
+
+    pthread_attr_init( &t_attribute ) ;
+    pthread_create( &m_t_writer, &t_attribute, RunOCFWriter, 0 ) ;
+
+    DODBG(9)( DBGDEV, "OCF_Status: created thread.\n" ) ;
+}
+
+void OCFStatus::StopOps( void )
+{
+    DODBG(9)( DBGDEV, "OCF_Status: destroying threads.\n" ) ;
+    if( m_t_timer )
+	pthread_cancel( m_t_timer ) ;
+    if( m_t_writer ) ;
+	pthread_cancel( m_t_writer ) ;
+}
+
+int OCFStatus::RequestStatus( int num_log )
+{
+    int retval ;
+
+    pthread_mutex_lock( &ocf_logging_mutex ) ;
+    int f_request = t_requests ;
+    if( (t_requests+num_log) > MAXKEYS ) {
+	retval = -1 ;
+    } else {
+	t_requests += num_log ;
+	retval = f_request ;
+    }
+    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+    return( retval ) ;
+}
+
+void OCFStatus::AddStatus( int w_log, u_char *name, u_char *key, u_char *value )
+{
+    pthread_mutex_lock( &ocf_logging_mutex ) ;
+
+    if( w_log > 0 && w_log < t_requests ) {
+	int l_key ;
+	s_status[q_log_a].wasused = true ;
+	strncpy( CP s_status[q_log_a].status[w_log], CP key, MAXWIDTH ) ;
+	s_status[q_log_a].l_key[w_log] = l_key = strlen( CP key ) ;
+
+	if( value ) {
+	    strncpy( CP s_status[q_log_a].status[w_log] + l_key + 1, 
+		CP value, MAXWIDTH-l_key-1 ) ;
+	    s_status[q_log_a].l_value[w_log] = strlen( CP value ) ;
+	} else {
+	    s_status[q_log_a].l_value[w_log] = 0 ;
+	}
+
+	s_status[q_log_a].names[w_log] = name ;
+	if( name )
+	    s_status[q_log_a].l_name[w_log] = strlen( CP name ) ;
+	else
+	    s_status[q_log_a].l_name[w_log] = 0 ;
+
+	s_status[q_log_a].n_attempts[w_log] = 0 ;
+	s_status[q_log_a].updated[w_log] = 1 ;
+
+	struct timeval now ;
+	gettimeofday( &now, 0 ) ;
+
+	s_status[q_log_a].set_time[w_log] = (double)now.tv_sec + 1e-6 * now.tv_usec ;
+    }
+
+    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+}
+
+
+int OCFStatus::NoStatus( int w_log )
+{
+    int retval = -1 ;
+    pthread_mutex_lock( &ocf_logging_mutex ) ;
+
+    if( w_log > 0 && w_log < t_requests ) {
+	s_status[q_log_a].wasused = true ;
+	if( s_status[q_log_a].n_attempts[w_log] < 0 ) {
+	    retval = s_status[q_log_a].n_attempts[w_log] = 1 ;
+	} else {
+	    retval = ++s_status[q_log_a].n_attempts[w_log] ;
+	}
+	s_status[q_log_a].updated[w_log] = 0 ;
+    }
+
+    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+    return( retval ) ;
+}
+
+void OCFStatus::Disconnected( int w_log )
+{
+    pthread_mutex_lock( &ocf_logging_mutex ) ;
+
+    if( w_log > 0 && w_log < t_requests ) {
+	s_status[q_log_a].n_attempts[w_log] = -1 ;
+    }
+    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+}
+
+void OCFStatus::Reconnected( int w_log )
+{
+    pthread_mutex_lock( &ocf_logging_mutex ) ;
+
+    if( w_log > 0 && w_log < t_requests ) {
+	s_status[q_log_a].n_attempts[w_log] = 0 ;
+    }
+    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+}
+
+void OCFStatus::LoggingTimer( void )
+{
+    struct timeval tv ;
+    static struct timeval tv_next ;
+    static int fails = 0 ;
+
+    gettimeofday( &tv, 0 ) ;
+    tv_next.tv_sec = tv.tv_sec + 2 + m_interval ;
+    tv_next.tv_usec = 0 ;
+
+    while( 1 ) {
+	gettimeofday( &tv, 0 ) ;
+	DODBG(11)(DBGDEV, "Logging process:  %15ld.%06ld  [%15ld]\n", tv.tv_sec, tv.tv_usec, tv_next.tv_sec ) ;
+	if( tv.tv_sec < tv_next.tv_sec ) {
+	    long d_secs = tv_next.tv_sec - tv.tv_sec ;
+	    long d_usecs = (tv_next.tv_usec - tv.tv_usec) ;
+	    d_usecs += 1000000 * d_secs + 1000 ; /* add 0.001 secs */
+	    struct timespec need_sleep ;
+	    d_secs = d_usecs / 1000000 ;
+	    need_sleep.tv_sec = d_secs ;
+	    need_sleep.tv_nsec = 1000*( d_usecs - 1000000 * d_secs ) ;
+	    DODBG(11)(DBGDEV, "Logging process: sleep for: %15ld.%09ld\n", need_sleep.tv_sec, need_sleep.tv_nsec ) ;
+	    nanosleep( &need_sleep, 0 ) ;
+	    continue ;
+	}
+	// tv_next.tv_sec += m_interval ;
+	if( (tv.tv_sec - tv_next.tv_sec) > 4 ) {
+	    DODBG(0)(DBGDEV, "WARNING  Logging process:  %15ld.%06ld  [%15ld]\n", tv.tv_sec, tv.tv_usec, tv_next.tv_sec ) ;
+	    fails++ ;
+	}
+
+	pthread_mutex_lock( &ocf_logging_mutex ) ;
+
+	gettimeofday( &tv, 0 ) ;
+	tv_next.tv_sec = tv.tv_sec + m_interval ;
+	DODBG(11)(DBGDEV, "Logging unlock:  %15ld.%06ld\n", tv.tv_sec, tv.tv_usec ) ;
+
+#if 1
+	if( 1 ) {
+	    static int tvd_last = 0 ;
+	    static int iFails = 0 ;
+
+	    if( tvd_last != tv.tv_sec ) {
+		tvd_last = tv.tv_sec ;
+		if( fails > 0 ) iFails++ ;
+		fails = 0 ;
+
+		DODBG(11)(DBGDEV, "Queue: %5ld %6d ", (tv.tv_sec%10000), iFails ) ;
+		for( int j = 0, k = q_log_a ; j < MAX_Q_LOG ; j++ ) {
+		    DODBG(11)(DBGDEV, "%1d ",  s_status[k].inuse ) ;
+		    k = (k+1) % MAX_Q_LOG ;
+		}
+		DODBG(11)(DBGDEV, "\n" ) ;
+	    }
+	}
+#endif
+
+	int q_log_n = (q_log_a + 1) % MAX_Q_LOG ;
+
+	if( s_status[q_log_n].inuse ) {
+	    DODBG(0)(DBGDEV, "Warning: Status logging queue full!!  %15ld.%06ld\n", tv.tv_sec, tv.tv_usec ) ;
+	    fails++ ;
+	    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+	    sem_post( &sem_writing ) ;
+	    continue ;
+	}
+
+	memcpy( s_status[q_log_n].status, s_status[q_log_a].status,
+	    MAXKEYS*MAXWIDTH ) ;
+	for( int j = 0 ; j < MAXKEYS ; j++ ) {
+	    s_status[q_log_n].l_key[j] = s_status[q_log_a].l_key[j] ;
+	    s_status[q_log_n].l_value[j] = s_status[q_log_a].l_value[j] ;
+	    s_status[q_log_n].set_time[j] = s_status[q_log_a].set_time[j] ;
+	    s_status[q_log_n].names[j] = s_status[q_log_a].names[j] ;
+	    s_status[q_log_n].l_name[j] = s_status[q_log_a].l_name[j] ;
+	    s_status[q_log_n].n_attempts[j] = s_status[q_log_a].n_attempts[j] ;
+	    s_status[q_log_n].updated[j] = 0 ;
+	}
+
+#if 0
+	if( s_status[q_log_n].inuse ) {
+	    DODBG(0)(DBGDEV, "Warning: Status logging queue full!!  %15d.%06d\n", tv.tv_sec, tv.tv_usec ) ;
+	    fails++ ;
+	    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+	    sem_post( &sem_writing ) ;
+	    continue ;
+	}
+#endif
+
+	s_status[q_log_n].wasused = false ;
+
+	s_status[q_log_a].inuse = true ;
+	s_status[q_log_a].t_log_s = tv.tv_sec ;
+	s_status[q_log_a].t_log_us = tv.tv_usec ;
+	s_status[q_log_a].d_t_log = (double)tv.tv_sec + 1e-6*tv.tv_usec ;
+
+	struct tm *ut = gmtime( &tv.tv_sec ) ;
+
+	double currMET = tv.tv_sec + 1e-6*tv.tv_usec - EpochMET ;
+	int tm_dsec = (int)( tv.tv_usec / 100000 ) ;
+
+	snprintf( CP s_status[q_log_a].status[0], MAXWIDTH, 
+	    "%04d-%02d-%02dT%02d:%02d:%02d.%01d UTC Up=%s MET=%.3f V%s",
+	    ut->tm_year+1900,
+	    ut->tm_mon+1,
+	    ut->tm_mday,
+	    ut->tm_hour,
+	    ut->tm_min,
+	    ut->tm_sec,
+	    tm_dsec,
+	    GetUptime(),
+	    currMET,
+	    cVersion ) ;
+	s_status[q_log_a].l_key[0] = strlen( CP s_status[q_log_a].status[0] );
+	s_status[q_log_a].l_value[0] = 0 ;
+	s_status[q_log_a].names[0] = 0 ;
+	s_status[q_log_a].updated[0] = 1 ;
+
+	q_log_a = q_log_n ;
+
+	pthread_mutex_unlock( &ocf_logging_mutex ) ;
+
+	sem_post( &sem_writing ) ;
+	DODBG(11)(DBGDEV, "%.3f\r\n", currMET ) ;
+	gettimeofday( &tv, 0 ) ;
+	DODBG(11)(DBGDEV, "Logging end:  %15ld.%06ld\n", tv.tv_sec, tv.tv_usec ) ;
+    }
+}
+
+void OCFStatus::LoggingWriter( void )
+{
+    while( 1 ) {
+	sem_wait( &sem_writing ) ;
+	while( true ) {
+	    pthread_mutex_lock( &ocf_logging_mutex ) ;
+	    int state = (q_log_a == q_log_p ) ;
+	    pthread_mutex_unlock( &ocf_logging_mutex ) ;
+	    if( state ) break ;
+
+	    DODBG(10)(DBGDEV, "Writing log %d\n", q_log_p ) ;
+	    if( s_status[q_log_p].wasused ) {
+		DODBG(11)(DBGDEV, "Something to print %d\n", q_log_p ) ;
+		struct tm *ut = gmtime( &(s_status[q_log_p].t_log_s) ) ;
+
+		if( HTTP ) HTTP->Preamble() ;
+		if( XML ) XML->Preamble() ;
+
+		int fd = -1 ;
+		u_char j_dir[1024] ;
+		if( bWriteStatus ) {
+
+		    if( ! status_file ) 
+			snprintf( CP j_dir, 1024, "%s/%04d.%03d/%02d", 
+			    Dir, 
+			    ut->tm_year+1900,
+			    ut->tm_yday+1, ut->tm_hour ) ;
+		    else
+			snprintf( CP j_dir, 1024, "%s", Dir ) ;
+
+		    int status = mktree( j_dir ) ;
+		    if( status ) {
+			perror( CP j_dir ) ;
+			DODBG(0)(DBGDEV, "Failed to create logging dir.\n" ) ;
+			exit(0) ;
+		    }
+
+		    u_char j_file[1024] ;
+		    long secs_of_hour = s_status[q_log_p].t_log_s % 3600 ;
+
+		    if( status_file )
+			snprintf( CP j_file, 1024, "%s/%s", j_dir, status_file ) ;
+		    else
+			snprintf( CP j_file, 1024, "%s/%02ld.%02ld", 
+			    j_dir, secs_of_hour/60, secs_of_hour%60 );
+
+
+
+		    fd = open( CP j_file, O_WRONLY|O_CREAT|O_APPEND, 0666 ) ;
+		    if( fd < 0 ) {
+			perror( CP j_file ) ;
+			DODBG(0)(DBGDEV, "Failed to create status log file: %s\n", j_file ) ;
+			// break ;
+		    } else {
+			SetCloseOnExec( fd ) ;
+		    }
+
+		}
+
+		for( int i = 0 ; i < t_requests ; i++ ) {
+		    int l_key = s_status[q_log_p].l_key[i] ;
+		    if( l_key == 0 ) continue ;
+
+		    int l_name = s_status[q_log_p].l_name[i] ;
+		    int l_value = s_status[q_log_p].l_value[i] ;
+		    u_char *p_name = s_status[q_log_p].names[i] ;
+		    u_char *p_key = s_status[q_log_p].status[i] ;
+		    u_char *p_value = (l_value) ? p_key+l_key+1 : 0 ;
+
+		    int n_attempts = s_status[q_log_p].n_attempts[i] ;
+		    u_char timp[MAXWIDTH] ;
+		    if( n_attempts < 0 ) {
+			snprintf( CP timp, MAXWIDTH, "%11.3f s (disc)",
+			    s_status[q_log_p].d_t_log - 
+			    s_status[q_log_p].set_time[i] ) ;
+		    } else if( n_attempts == 0 ) {
+			snprintf( CP timp, MAXWIDTH, "%11.3f s",
+			    s_status[q_log_p].d_t_log - 
+			    s_status[q_log_p].set_time[i] ) ;
+		    } else {
+			snprintf( CP timp, MAXWIDTH, "%11.3f s (%d fail%s)",
+			    s_status[q_log_p].d_t_log - 
+			    s_status[q_log_p].set_time[i],
+			    n_attempts,
+			    n_attempts>1?"s":"" ) ;
+		    }
+
+		    if( bWriteStatus ) {
+
+			if( ! p_name ) {
+			    write( fd, p_key, l_key ) ;
+			} else {
+			    write( fd, "<", 1 ) ;
+			    write( fd, p_name, l_name ) ;
+			    write( fd, "> <", 3 ) ;
+			    write( fd, p_key, l_key ) ;
+			    write( fd, "> ", 2 ) ;
+
+			    if( l_value ) {
+				write( fd, "= <", 3 ) ;
+				write( fd, p_value, l_value ) ;
+				write( fd, "> ", 2 ) ;
+			    }
+			    write( fd, timp, strlen(CP timp) ) ;
+			}
+			write( fd, "\r\n", 2 ) ;
+
+		    }
+
+		    if( HTTP || XML ) {
+			if( p_name ) SuppressQuotes( p_name ) ;
+			if( p_key ) SuppressQuotes( p_key ) ;
+			if( p_value ) SuppressQuotes( p_value ) ;
+		    }
+
+		    if( HTTP ) {
+			HTTP->Body( p_name, p_key, p_value, timp, n_attempts, s_status[q_log_p].updated[i] ) ;
+		    }
+		    if( XML ) {
+			XML->Body( p_name, p_key, p_value, timp, n_attempts, s_status[q_log_p].updated[i] ) ;
+		    }
+		}
+		if( HTTP ) HTTP->Postamble() ;
+		if( XML ) XML->Postamble() ;
+
+		if( fd >= 0 )
+		    close( fd ) ;
+
+	    } else {
+		DODBG(11)(DBGDEV, "Nothing to print %d\n", q_log_p ) ;
+	    }
+	    DODBG(11)(DBGDEV, "Finished writing log %d\n", q_log_p ) ;
+	    s_status[q_log_p].inuse = false ;
+	    s_status[q_log_p].wasused = false ;
+	    q_log_p = (q_log_p + 1) % MAX_Q_LOG ;
+	}
+    }
+}
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.9
+log
+@Working system. Backing up.
+@
+text
+@d18 1
+d26 3
+a28 4
+    if( ! prefix ) {
+	DODBG(0)(DBGDEV, "No logging directory/prefix given.\r\n" ) ;
+	exit(0) ;
+    }
+d30 2
+a31 2
+    strncpy( CP dirname, CP prefix, 1024 ) ;
+    p_dir = UCP strrchr( CP dirname, '/' ) ;
+d33 7
+a39 5
+    if( p_dir ) {
+	*p_dir = '\0' ;
+	if( mktree( dirname ) ) {
+	    perror( CP dirname ) ;
+	    return ;
+a40 2
+	*p_dir = '/' ;
+    }
+d42 1
+a42 1
+    snprintf( CP filename, 1024, "%s.%s", prefix, NameInUT ) ;
+d44 8
+a51 4
+    if( log_suffix ) 
+	snprintf( CP filename, 1024, "%s%s", prefix, log_suffix ) ;
+    Log = fopen( CP filename, "a" ) ;
+    if( ! Log ) return ;
+d53 4
+a56 1
+    setvbuf( Log, 0, _IONBF, 0 ) ;
+a57 2
+    pthread_mutexattr_t logging_mutex_attr ;
+    pthread_mutexattr_settype( &logging_mutex_attr, PTHREAD_MUTEX_FAST_NP ) ;
+d126 1
+d136 1
+d138 6
+a143 3
+	DODBG(0)( DBGDEV, "No OCF status logging directory given.\r\n" ) ;
+	exit(0) ;
+    }
+a144 1
+    if( access( CP inDir, F_OK ) ) { // Not found.
+d154 3
+d166 8
+a175 1
+    DODBG(0)( DBGDEV, "OCF status logging directory is: %s.\n", Dir );
+d186 1
+d196 3
+d200 4
+a203 1
+    pthread_mutexattr_settype( &logging_mutex_attr, PTHREAD_MUTEX_FAST_NP ) ;
+d235 2
+d243 9
+d293 1
+d298 1
+a298 2
+	s_status[q_log_a].set_time[w_log] = 
+	    (double)now.tv_sec + 1e-6 * now.tv_usec ;
+d317 1
+d319 1
+d348 1
+d356 1
+d365 1
+d369 5
+a373 1
+	tv_next.tv_sec += m_interval ;
+d378 2
+d381 17
+a397 4
+#if 0
+	for( int j = 0, k = q_log_a ; j < MAX_Q_LOG ; j++ ) {
+	    fprintf( stderr, "%1d ",  s_status[k].inuse ) ;
+	    k = (k+1) % MAX_Q_LOG ;
+a398 1
+	fprintf( stderr, "\n" ) ;
+d402 9
+d420 1
+d423 1
+d425 2
+a426 2
+	    DODBG(0)(DBGDEV, "Status logging queue full!!\n" ) ;
+	    DODBG(0)(DBGDEV, "Things may get messy!!!!\n" ) ;
+a428 1
+	    exit(0) ;
+d431 2
+d443 1
+d446 1
+a446 1
+	    "%04d-%02d-%02d %02d:%02d:%02d UT Up=%s MET=%.3f",
+d453 1
+d455 2
+a456 1
+	    currMET ) ;
+d460 1
+d467 3
+a469 1
+	DODBG(9)(DBGDEV, "%.3f\r\n", currMET ) ;
+d483 1
+a483 1
+	    DODBG(11)(DBGDEV, "Writing log %d\n", q_log_p ) ;
+d488 4
+d493 27
+a519 12
+		if( ! status_file ) 
+		    snprintf( CP j_dir, 1024, "%s/%03d/%02d", 
+			Dir, ut->tm_yday+1, ut->tm_hour ) ;
+		else
+		    snprintf( CP j_dir, 1024, "%s", Dir ) ;
+
+		int status = mktree( j_dir ) ;
+		if( status ) {
+		    perror( CP j_dir ) ;
+		    DODBG(0)(DBGDEV, "Failed to create logging dir.\n" ) ;
+		    exit(0) ;
+		}
+d521 8
+a528 2
+		u_char j_file[1024] ;
+		long secs_of_hour = s_status[q_log_p].t_log_s % 3600 ;
+a529 11
+		if( status_file )
+		    snprintf( CP j_file, 1024, "%s/%s", j_dir, status_file ) ;
+		else
+		    snprintf( CP j_file, 1024, "%s/%02ld.%02ld", 
+			j_dir, secs_of_hour/60, secs_of_hour%60 );
+
+		int fd = open( CP j_file, O_WRONLY|O_CREAT|O_APPEND, 0666 ) ;
+		if( fd < 0 ) {
+		    perror( CP j_file ) ;
+		    DODBG(0)(DBGDEV, "Failed to create logging file.\n" ) ;
+		    break ;
+a530 1
+		if( HTTP ) HTTP->Preamble() ;
+d560 9
+a568 12
+		    if( ! p_name ) {
+			write( fd, p_key, l_key ) ;
+		    } else {
+			write( fd, "<", 1 ) ;
+			write( fd, p_name, l_name ) ;
+			write( fd, "> <", 3 ) ;
+			write( fd, p_key, l_key ) ;
+			write( fd, "> ", 2 ) ;
+
+			if( l_value ) {
+			    write( fd, "= <", 3 ) ;
+			    write( fd, p_value, l_value ) ;
+d570 7
+d578 2
+a579 1
+			write( fd, timp, strlen(CP timp) ) ;
+d582 5
+a586 1
+		    write( fd, "\r\n", 2 ) ;
+d589 4
+a592 1
+			HTTP->Body( p_name, p_key, p_value, timp, n_attempts ) ;
+d596 1
+d598 2
+a599 1
+		close( fd ) ;
+@
+
+
+1.8
+log
+@Working version.
+@
+text
+@d191 1
+d197 1
+d275 5
+a279 1
+	retval = ++s_status[q_log_a].n_attempts[w_log] ;
+d285 20
+d430 1
+a430 1
+		    snprintf( CP j_file, 1024, "%s/%02d.%02d", 
+d453 9
+a461 1
+		    if( n_attempts ) {
+a466 4
+		    } else {
+			snprintf( CP timp, MAXWIDTH, "%11.3f s",
+			    s_status[q_log_p].d_t_log - 
+			    s_status[q_log_p].set_time[i] ) ;
+@
+
+
+1.7
+log
+@Working Version. SRS630 included.
+@
+text
+@d120 1
+d166 1
+d253 2
+d266 13
+d324 1
+d425 1
+d427 11
+a437 4
+
+		    snprintf( CP timp, MAXWIDTH, "%11.3f s",
+			s_status[q_log_p].d_t_log - 
+			s_status[q_log_p].set_time[i] ) ;
+d453 1
+a453 1
+			write( fd, timp, 13 ) ;
+d459 1
+a459 1
+			HTTP->Body( p_name, p_key, p_value, timp ) ;
+@
+
+
+1.6
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d42 1
+a42 1
+    snprintf( CP filename, 1024, "%s.%s", prefix, StartTime ) ;
+d111 1
+a111 1
+#define MAXKEYS		(128)
+a264 1
+    struct timezone tz ;
+d288 1
+a288 1
+	gettimeofday( &tv, &tz ) ;
+d326 1
+a326 2
+	double currMET = tv.tv_sec + 1e-6*tv.tv_usec + 60*tz.tz_minuteswest 
+	    - EpochMET ;
+d329 1
+a329 1
+	    "%04d-%02d-%02d %02d:%02d:%02d UT MET=%.3f",
+d336 1
+@
+
+
+1.5
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@a23 1
+    time_t now ;
+d26 1
+a26 1
+	DOLOG(0)(LOGDEV, "No logging directory/prefix given.\r\n" ) ;
+d42 1
+a42 11
+    time( &now ) ;
+    struct tm *ut = gmtime( &now ) ;
+
+    snprintf( CP filename, 1024, "%s.%04d-%02d-%02d=%02d:%02d:%02d",
+	prefix,
+	ut->tm_year+1900,
+	ut->tm_mon+1,
+	ut->tm_mday,
+	ut->tm_hour,
+	ut->tm_min,
+	ut->tm_sec ) ;
+d46 1
+a46 2
+    // Log = fopen( CP filename, "a" ) ;
+    Log = fopen( CP filename, "w" ) ;
+d130 1
+a130 1
+	DOLOG(0)( LOGDEV, "No OCF status logging directory given.\r\n" ) ;
+d135 2
+a136 2
+	DOLOG(0)( LOGDEV, "OCF status logging directory not found.\n" ) ;
+	DOLOG(0)( LOGDEV, "Will try to create directory: %s.\n", inDir ) ;
+d139 1
+a139 1
+	    DOLOG(0)( LOGDEV, "Could not create directory: %s.\n", inDir ) ;
+d146 1
+a146 1
+	    DOLOG(0)( LOGDEV, 
+d155 1
+a155 1
+    DOLOG(0)( LOGDEV, "OCF status logging directory is: %s.\n", Dir );
+d200 1
+a200 1
+    DOLOG(9)( LOGDEV, "OCF_Status: about to create thread.\n" ) ;
+d208 1
+a208 1
+    DOLOG(9)( LOGDEV, "OCF_Status: created thread.\n" ) ;
+d265 1
+d289 1
+a289 1
+	gettimeofday( &tv, 0 ) ;
+d311 2
+a312 2
+	    DOLOG(0)(LOGDEV, "Status logging queue full!!\n" ) ;
+	    DOLOG(0)(LOGDEV, "Things may get messy!!!!\n" ) ;
+d327 3
+d331 1
+a331 1
+	    "%04d-%02d-%02d %02d:%02d:%02d UT Clock=%d.%06d",
+d338 1
+a338 1
+	    tv.tv_sec, tv.tv_usec ) ;
+d348 1
+a348 1
+	DOLOG(11)(LOGDEV, "%11d.%06d\r\n", tv.tv_sec, tv.tv_usec ) ;
+d362 1
+a362 1
+	    DOLOG(11)(LOGDEV, "Writing log %d\n", q_log_p ) ;
+d364 1
+a364 1
+		DOLOG(11)(LOGDEV, "Something to print %d\n", q_log_p ) ;
+d370 1
+a370 1
+			Dir, ut->tm_yday, ut->tm_hour ) ;
+d377 1
+a377 1
+		    DOLOG(0)(LOGDEV, "Failed to create logging dir.\n" ) ;
+d390 1
+a390 1
+		int fd = open( CP j_file, O_WRONLY|O_CREAT|O_APPEND, 0777 ) ;
+d393 1
+a393 1
+		    DOLOG(0)(LOGDEV, "Failed to create logging file.\n" ) ;
+d442 1
+a442 1
+		DOLOG(11)(LOGDEV, "Nothing to print %d\n", q_log_p ) ;
+d444 1
+a444 1
+	    DOLOG(11)(LOGDEV, "Finished writing log %d\n", q_log_p ) ;
+@
+
+
+1.4
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d106 17
+@
+
+
+1.3
+log
+@Working for CRISM config.
+@
+text
+@a258 2
+    u_char filename[1024] ;
+
+d339 1
+a339 1
+	DOLOG(0)(LOGDEV, "%s %11d.%06d\r\n", filename, tv.tv_sec, tv.tv_usec ) ;
+d353 1
+a353 1
+	    DOLOG(9)(LOGDEV, "Writing log %d\n", q_log_p ) ;
+d355 1
+a355 1
+		DOLOG(10)(LOGDEV, "Something to print %d\n", q_log_p ) ;
+d433 1
+a433 1
+		DOLOG(10)(LOGDEV, "Nothing to print %d\n", q_log_p ) ;
+d435 1
+a435 1
+	    DOLOG(9)(LOGDEV, "Finished writing log %d\n", q_log_p ) ;
+@
+
+
+1.2
+log
+@Working.
+@
+text
+@d241 4
+a244 1
+	s_status[q_log_a].l_name[w_log] = strlen( CP name ) ;
+d334 1
+d392 3
+a395 1
+		    int l_key = s_status[q_log_p].l_key[i] ;
+d399 1
+a399 1
+		    u_char *p_value = p_key+l_key+1 ;
+a400 1
+		    if( l_key == 0 && l_value == 0 ) continue ;
+d402 8
+a409 1
+		    if( l_value ) {
+a413 2
+			write( fd, "> = <", 5 ) ;
+			write( fd, p_value, l_value ) ;
+d415 6
+a420 3
+			snprintf( CP timp, MAXWIDTH, "%11.3f s",
+			    s_status[q_log_p].d_t_log - 
+			    s_status[q_log_p].set_time[i] ) ;
+a421 2
+		    } else {
+			write( fd, p_key, l_key ) ;
+d423 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d17 1
+d57 2
+a58 1
+    Log = fopen( CP filename, "a" ) ;
+d81 1
+d106 1
+a106 1
+#define MAXKEYS		(64)
+d110 1
+d112 4
+d119 1
+d155 6
+d222 1
+a222 1
+void OCFStatus::AddStatus( int w_log, u_char *status_txt )
+d227 1
+d229 19
+a247 2
+	strncpy( CP s_status[q_log_a].status[w_log], CP status_txt, 
+	    MAXWIDTH ) ;
+d284 8
+d295 7
+d306 4
+d316 1
+d329 2
+d351 1
+a351 1
+	    DOLOG(10)(LOGDEV, "Printing %d\n", q_log_p ) ;
+d385 1
+d388 24
+a411 3
+		    int len = strlen( CP s_status[q_log_p].status[i] ) ;
+		    if( len == 0 ) continue ;
+		    write( fd, s_status[q_log_p].status[i], len ) ;
+d413 4
+d418 1
+d425 1
+@

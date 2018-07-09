@@ -1,0 +1,74 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.1;
+
+1.1
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Found bug in queue handling. Depend upon labview timeout.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <stdio.h>
+#include "global.h"
+
+static const int buildnum =
+#include "build.h"
+;
+
+void PrintVersion( void )
+{
+    fprintf( DBGDEV, 
+	"Version "
+	VERSION " Build #%d. Created " __TIMESTAMP__ "\r\n", 
+	buildnum
+    ) ;
+
+    snprintf( cVersion, sizeof(cVersion), "%s", VERSION ) ;
+}
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d10 3
+a12 2
+    fprintf( DBGDEV,
+	__DATE__ " " __TIME__ " Build #%d\r\n",
+d15 2
+@

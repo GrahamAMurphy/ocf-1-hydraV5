@@ -1,0 +1,539 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.8;
+
+1.8
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.07.22.18.34.23;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working. Supports SR630.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "tempmon.h"
+#include "support.h"
+#include "periodic.h"
+
+TempMon::TempMon( void )
+{
+    r_timeo = 2000 ;
+    w_timeo = 2000 ;
+    devtype = TypeTempMon ;
+    devtypestring = "Temperature Mon" ;
+    cycle = 10000 ; // 10.0 secs per channel.
+    n_sensors = 8 ;
+    n_heaters = 10 ;
+    w_sensor = 0 ;
+    DODBG(9)(DBGDEV, "Leaving tempmon constructor.\n" ) ; 
+}
+
+int TempMon::Parse( u_char *key, u_char *value )
+{
+    if( strcasecmp( CP key, "sensors" ) == 0 ) {
+        int t_n_sensors = strtol( CP value, NULL, 0 ) ;
+        if( t_n_sensors > 0 ) n_sensors = t_n_sensors ;
+        return( true ) ;
+    }
+    return( Client::Parse( key, value ) ) ;
+}
+
+
+void TempMon::StartOps( void )
+{
+    u_char temp_str[256] ;
+
+    DODBG(9)(DBGDEV, "%s: TempMon being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( n_sensors ) ; // Just the temperatures.
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	sprintf( CP temp_str, "tempmon get temp -1" ) ;
+	mPeriodics[i] = PeriodicQ->Add( getDevice(), temp_str ) ;
+    }
+
+    StartThread() ;
+}
+
+int TempMon::DeviceOpen( void )
+{
+    u_char temp_str[256] ;
+
+    for( int i = 0 ; i < n_sensors ; i++ ) {
+        snprintf( CP temp_str, sizeof(temp_str), "get temp %d name", i ) ;
+        int nexc = Exchange( temp_str, w_timeo, temp_names[i], 64, r_timeo ) ;
+        if( nexc <= 0 ) return( false ) ;
+	DODBG(0)( DBGDEV, "%s: <<%s>>\n", name, temp_names[i] );
+	StatusLog->L_Command_U( name, temp_str, temp_names[i] ) ;
+    }
+
+    for( int i = 0 ; i < n_heaters ; i++ ) {
+        snprintf( CP temp_str, sizeof(temp_str), "get heater %d name", i ) ;
+        int nexc = Exchange( temp_str, w_timeo, heater_names[i], 64, r_timeo ) ;
+        if( nexc <= 0 ) return( false ) ;
+	DODBG(0)( DBGDEV, "%s: <<%s>>\n", name, heater_names[i] );
+	StatusLog->L_Command_U( name, temp_str, heater_names[i] ) ;
+    }
+    StartPeriodicTasks() ;
+    return( true ) ;
+}
+
+void TempMon::DeviceClose( void )
+{
+    StopPeriodicTasks() ;
+}
+
+void TempMon::StartPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+        PeriodicQ->SetPeriod( mPeriodics[i], cycle ) ;
+        PeriodicQ->Enable( mPeriodics[i] ) ;
+    }
+}
+
+void TempMon::StopPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->Disable( mPeriodics[i] ) ;
+    }
+}
+
+int TempMon::HandleRequest( void )
+{
+    if( Client::HandleRequest() )
+        return( true ) ;
+
+    mQueue->SetResponse( ERR_408_BADCMD ) ;
+
+    if( client_cmd.nCmds != 4 )
+	return( true ) ; // null or unknown command
+
+    if( strcasecmp( CP client_cmd.cmd[1], "get" ) != 0 )
+	return( true ) ; // null or unknown command
+
+    if( strcasecmp( CP client_cmd.cmd[2], "temp" ) != 0 )
+	return( true ) ; // null or unknown command
+
+    u_char command[256] ;
+
+    int w_t = strtol( CP client_cmd.cmd[3], NULL, 0 ) ;
+
+    if( w_t == -1 ) {
+	w_t = w_sensor ;
+	w_sensor = (w_sensor + 1) % n_sensors ;
+    } else if( w_t < 0 || w_t > 7 )
+	return( true ) ;
+
+    snprintf( CP command, sizeof(command), "get temp %d temp", w_t ) ;
+
+    u_char response[256] ;
+
+    int nexc ;
+    nexc = Exchange( command, w_timeo, response, sizeof(response), r_timeo ) ;
+    if( nexc <= 0 ) { NoStatus(w_t) ; return( (nexc==0) ) ; }
+
+    DODBG(0)( DBGDEV, "Response from %s: <<%s>>\n", name, response ) ;
+    AddStatus( w_t, temp_names[w_t], response ) ;
+
+    StatusLog->L_Command_U( name, command, response ) ;
+    mQueue->SetResponse( response ) ;
+    return( true ) ;
+}
+
+static const char* cClientOptions[] = {
+    "get temp %d"
+    } ;
+
+int TempMon::ListOptions( int iN, u_char *cOption, int iOptionLength )
+{
+    int M = 0 ;
+    strcpy( CP cOption, "" ) ;
+
+    int iMax = sizeof(cClientOptions)/sizeof(char*) ;
+
+    if( 0 <= iN && iN < iMax ) {
+        strncpy( CP cOption, cClientOptions[iN], iOptionLength ) ;
+	M = strlen( CP cOption ) ;
+    } else {
+	M = Client::ListOptions( iN-iMax, cOption, iOptionLength ) ;
+    }
+    return( M ) ;
+}
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.8
+log
+@Working system. Backing up.
+@
+text
+@d141 20
+@
+
+
+1.7
+log
+@Working version.
+@
+text
+@d26 3
+d32 11
+d48 1
+a48 1
+    mStatus = OCF_Status->RequestStatus( 8 ) ; // Just the temperatures.
+d50 1
+a50 1
+	sprintf( CP temp_str, "tempmon get temp %d", i ) ;
+a56 3
+static u_char temp_names[16][64] ;
+static u_char heater_names[16][64] ;
+
+d61 1
+a61 1
+    for( int i = 0 ; i < 8 ; i++ ) {
+d69 1
+a69 1
+    for( int i = 0 ; i < 10 ; i++ ) {
+d88 1
+a88 2
+        PeriodicQ->SetPeriod( mPeriodics[i], (nPeriodics+1)*cycle ) ;
+        PeriodicQ->Schedule( mPeriodics[i], 300+(i+1)*cycle ) ;
+d120 4
+a123 1
+    if( w_t < 0 || w_t > 7 )
+@
+
+
+1.6
+log
+@Working Version. SRS630 included.
+@
+text
+@a109 9
+#if 0
+    static int t_t = 0 ;
+    if( ! w_t ) {
+	w_t = ++t_t ;
+	t_t = (t_t % 8) ;
+    }
+    if( w_t < 1 || w_t > 8 )
+	return( true ) ;
+#endif
+d119 1
+a119 1
+    if( nexc <= 0 ) return( (nexc==0) ) ;
+@
+
+
+1.5
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d95 1
+a95 1
+    mQueue->SetResponse( ERR_400_NULL ) ;
+@
+
+
+1.4
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d21 2
+a22 2
+    r_timeo = 2000 ; // 1.0 secs
+    w_timeo = 1000 ; // 1.0 secs
+a24 1
+    cycle = 100000 ; // 100.0 secs per channel.
+d26 1
+a26 1
+    DOLOG(9)(LOGDEV, "Leaving tempmon constructor.\n" ) ; 
+d33 1
+a33 1
+    DOLOG(9)(LOGDEV, "%s: TempMon being started up.\n", name ) ;
+d53 2
+a54 3
+        if( nexc < 0 ) return( nexc ) ;
+        if( nexc == 0 ) continue ;
+	DOLOG(0)( LOGDEV, "%s: <<%s>>\n", name, temp_names[i] );
+d61 2
+a62 3
+        if( nexc < 0 ) return( nexc ) ;
+        if( nexc == 0 ) continue ;
+	DOLOG(0)( LOGDEV, "%s: <<%s>>\n", name, heater_names[i] );
+d95 2
+d130 1
+a130 1
+    DOLOG(0)( LOGDEV, "Response from %s: <<%s>>\n", name, response ) ;
+@
+
+
+1.3
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d26 1
+a26 1
+    cycle = 10000 ; // 100.0 secs per channel.
+d37 2
+a38 2
+	sprintf( CP temp_str, "tempmon get temp %d temp", i ) ;
+	mPeriodics[i] = PeriodicQ->Add( getDevice(), temp_str, cycle ) ;
+d47 1
+a47 1
+int TempMon::ConnectionStarted( void )
+a50 4
+    DisplayConnection() ;
+
+    FlushStream( fd ) ;
+
+d52 4
+a55 13
+	sprintf( CP temp_str, "get temp %d name", i ) ;
+	int nwrite = WriteStream( temp_str, w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+
+	int nread = ReadStream( temp_names[i], 64, r_timeo ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+
+	strchomp( temp_names[i] ) ;
+d57 1
+a57 5
+
+	StatusLog->Lock() ;
+	StatusLog->Write( name, "CMD", temp_str ) ;
+	StatusLog->Write( name, "RTN", temp_names[i] ) ;
+	StatusLog->Unlock() ;
+d61 4
+a64 13
+	sprintf( CP temp_str, "get heater %d name", i ) ;
+	int nwrite = WriteStream( temp_str, w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+
+	int nread = ReadStream( heater_names[i], 64, r_timeo ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+
+	strchomp( heater_names[i] ) ;
+d66 5
+d72 4
+a75 11
+	StatusLog->Lock() ;
+	StatusLog->Write( name, "CMD", temp_str ) ;
+	StatusLog->Write( name, "RTN", heater_names[i] ) ;
+	StatusLog->Unlock() ;
+    }
+    for( int i = 0 ; i < 10 ; i++ ) {
+	DOLOG(0)( LOGDEV, "Heater %d = %s\r\n", i, heater_names[i] ) ;
+    }
+    for( int i = 0 ; i < 8 ; i++ ) {
+	DOLOG(0)( LOGDEV, "Temp %d = %s\r\n", i, temp_names[i] ) ;
+    }
+d77 2
+d80 3
+a82 2
+	PeriodicQ->Schedule( mPeriodics[i], cycle/2 + 10000*(i + 2*getDevice()));
+	PeriodicQ->Enable( mPeriodics[i] ) ;
+a83 1
+    return( true ) ;
+d86 1
+a86 1
+void TempMon::ConnectionEnded( void )
+a90 1
+    Client::ConnectionEnded() ;
+d95 26
+a120 29
+    u_char response[256] = "EMPTY" ;
+    const u_char *request ;
+    mQueue->GetNextTransaction() ;
+
+    request = mQueue->GetRequest() ;
+    DOLOG(0)( LOGDEV, "client request %s: <%s>\n", name, request ) ;
+    mQueue->SetResponse( NULL ) ;
+
+    sCmd s_cmd ;
+    /* int ncmd = */ TokenizeRequest( request, s_cmd ) ;
+
+    u_char t_request[1024] ;
+    strcpy( CP t_request, CP s_cmd.cmd[1] ) ;
+    for( int i = 2 ; i < 8 ; i++ ) {
+	if( ! s_cmd.cmd[i] ) break ;
+	strcat( CP t_request, " " ) ;
+	strcat( CP t_request, CP s_cmd.cmd[i] ) ;
+    }
+
+    FlushStream( fd ) ;
+
+    int nwrite = WriteStream( t_request, w_timeo ) ;
+    if( nwrite <= 0 ) return( false ) ;
+
+    int nread = ReadStream( response, sizeof(response), r_timeo ) ;
+    if( nread < 0 ) return( false ) ;
+    if( nread == 0 ) {
+	fprintf( stderr, "Timeout %s\n", name ) ;
+	errors++ ;
+a121 3
+    }
+    response[nread] = '\0' ;
+    strchomp( response ) ;
+d123 10
+a132 1
+    DOLOG(0)( LOGDEV, "client response %s: <<%s>>\n", name, response ) ;
+d134 1
+a134 13
+    // add ocf status aka fits stuff.
+    if( strcasecmp( CP s_cmd.cmd[1], "get" ) == 0 &&
+	strcasecmp( CP s_cmd.cmd[2], "temp" ) == 0 ) {
+	int w_t = strtol( CP s_cmd.cmd[3], NULL, 0 ) ;
+	if( w_t >= 0 || w_t < 8 ) {
+	    AddStatus( w_t, temp_names[w_t], response ) ;
+	}
+    }
+
+    StatusLog->Lock() ;
+    StatusLog->Write( name, "CMD", t_request ) ;
+    StatusLog->Write( name, "RTN", response ) ;
+    StatusLog->Unlock() ;
+a135 1
+
+@
+
+
+1.2
+log
+@Working.
+@
+text
+@d21 1
+a21 1
+    r_timeo = 1000 ; // 1.0 secs
+d25 2
+d38 1
+a38 1
+	mPeriodics[i] = PeriodicQ->Add( getDevice(), temp_str, 100000 ) ;
+d61 6
+a66 1
+	if( nread <= 0 ) return( false ) ;
+d83 6
+a88 1
+	if( nread <= 0 ) return( false ) ;
+d106 1
+a106 1
+	PeriodicQ->Schedule( mPeriodics[i], 10000 + i * 10000 ) ;
+d147 6
+a152 1
+    if( nread <= 0 ) return( false ) ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d23 2
+a24 1
+    nPeriodics = 8 ;
+d110 1
+d116 1
+a133 1
+    u_char response[256] ;
+d146 1
+a146 7
+	    u_char tmp_str[128] ;
+	    struct timeval now ;
+	    gettimeofday( &now, 0 ) ;
+	    snprintf( CP tmp_str, 128, "<%s> = <%s> C Clock=%d.%06d", 
+		temp_names[w_t], response,
+		now.tv_sec, now.tv_usec );
+	    OCF_Status->AddStatus( mStatus+w_t, tmp_str ) ;
+@

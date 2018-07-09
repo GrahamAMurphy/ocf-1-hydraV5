@@ -1,0 +1,76 @@
+head	1.2;
+access;
+symbols;
+locks
+	murphy:1.2; strict;
+comment	@ * @;
+
+
+1.2
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.09.16.15.44;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working.
+@
+
+
+1.2
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@#ifndef __Newport_h__
+#define __Newport_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+#include <pthread.h>
+
+#include "support.h"
+#include "client.h"
+
+class Newport : public Client {
+    virtual int DeviceOpen( void ) ;
+    virtual int HandleRequest( void ) ;
+    virtual void DeviceClose( void ) ;
+    void StartPeriodicTasks( void ) ;
+    void StopPeriodicTasks( void ) ;
+    int Retrieve( u_char*, int ) ;
+    int Move( u_char*, int ) ;
+    int Halt( u_char*, int ) ;
+    static int const nPeriodics = 2 ;
+    int mPeriodics[nPeriodics] ;
+public:
+    Newport( void ) ;
+    virtual void StartOps( void ) ;
+} ;
+
+#endif // __Newport_h__
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d14 1
+a14 1
+    virtual int ConnectionStarted( void ) ;
+d16 6
+a21 4
+    virtual void ConnectionEnded( void ) ;
+    int Retrieve( sCmd input, u_char*, int ) ;
+    int Move( sCmd input, u_char*, int ) ;
+    int Halt( sCmd input, u_char*, int ) ;
+@

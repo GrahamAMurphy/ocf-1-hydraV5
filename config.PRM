@@ -1,0 +1,16 @@
+# Name       Type         Setup Information
+#
+Epoch	1291992075.0 # Unix time offset for 2010 December.
+
+<Sequencer>    			network-server
+options	<Sequencer>    		<port=5000> 
+
+<PRM100>     network-client-prm100
+options <PRM100>     <target=TestHost0,port=10101>
+alias <PRM100>     <PRM100>
+options <PRM100>	<cycle=-1,delay=0>
+
+options	<Sequencer>    		<enable>
+options <PRM100>    		<enable>
+
+exit

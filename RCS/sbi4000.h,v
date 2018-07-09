@@ -1,0 +1,333 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.10.1597
+	murphy:5.1.8.1572
+	murphy:5.1.9.1593; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.19.22;	author murphy;	state Exp;
+branches
+	5.1.8.1
+	5.1.9.1593
+	5.1.10.1597;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.19.23;	author murphy;	state Exp;
+branches;
+next	5.1.8.1548;
+
+5.1.8.1548
+date	2014.11.11.12.20.09;	author murphy;	state Exp;
+branches;
+next	5.1.8.1551;
+
+5.1.8.1551
+date	2014.11.11.12.58.59;	author murphy;	state Exp;
+branches;
+next	5.1.8.1553;
+
+5.1.8.1553
+date	2014.11.11.13.12.10;	author murphy;	state Exp;
+branches;
+next	5.1.8.1554;
+
+5.1.8.1554
+date	2014.11.11.13.13.06;	author murphy;	state Exp;
+branches;
+next	5.1.8.1555;
+
+5.1.8.1555
+date	2014.11.11.13.13.45;	author murphy;	state Exp;
+branches;
+next	5.1.8.1556;
+
+5.1.8.1556
+date	2014.11.11.13.13.52;	author murphy;	state Exp;
+branches;
+next	5.1.8.1557;
+
+5.1.8.1557
+date	2014.11.11.13.14.00;	author murphy;	state Exp;
+branches;
+next	5.1.8.1560;
+
+5.1.8.1560
+date	2014.11.11.13.16.04;	author murphy;	state Exp;
+branches;
+next	5.1.8.1569;
+
+5.1.8.1569
+date	2014.11.11.13.34.58;	author murphy;	state Exp;
+branches;
+next	5.1.8.1572;
+
+5.1.8.1572
+date	2014.11.11.13.39.52;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.9.1593
+date	2015.01.07.19.14.24;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.10.1597
+date	2015.07.28.16.07.19;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@2014-11-11 07:19:06 gam-1
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __FilterWheel_h__
+#define __FilterWheel_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+#include <pthread.h>
+
+#include "support.h"
+#include "client.h"
+
+class FilterWheel : public Client {
+    virtual int DeviceOpen( void ) ;
+    virtual int HandleRequest( void ) ;
+    virtual void DeviceClose( void ) ;
+    int AddressFilter( u_char*, int ) ;
+    enum FW_state_select { FW_state, FW_goal } ;
+    int UpdateFWState( FW_state_select, u_char* ) ;
+    static int const nPeriodics = 1 ;
+    int mPeriodics[nPeriodics] ;
+    int fw_state, fw_goal ;
+    virtual void StartPeriodicTasks( void ) ;
+    virtual void StopPeriodicTasks( void ) ;
+public:
+    FilterWheel( void ) ;
+    virtual void StartOps( void ) ;
+    virtual int ListOptions( int, u_char *, int ) ;
+} ;
+
+#endif // __FilterWheel_h__
+@
+
+
+5.1.10.1597
+log
+@5.1.10.1597
+@
+text
+@d1 2
+a2 2
+#ifndef __SBI4000_h__
+#define __SBI4000_h__
+d13 1
+a13 1
+class SBI4000 : public Client {
+d17 4
+a20 2
+
+    static int const nPeriodics = 3 ;
+d22 1
+a24 3
+
+    int AddressSBI4000( u_char *, int ) ;
+
+d26 1
+a26 1
+    SBI4000( void ) ;
+d31 1
+a31 1
+#endif // __SBI4000_h__
+@
+
+
+5.1.9.1593
+log
+@5.1.9.1593
+@
+text
+@d1 2
+a2 2
+#ifndef __SBI4000_h__
+#define __SBI4000_h__
+d13 1
+a13 1
+class SBI4000 : public Client {
+d17 4
+a20 2
+
+    static int const nPeriodics = 3 ;
+d22 1
+a24 3
+
+    int AddressSBI4000( u_char *, int ) ;
+
+d26 1
+a26 1
+    SBI4000( void ) ;
+d31 1
+a31 1
+#endif // __SBI4000_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+5.1.8.1548
+log
+@5.1.8.1548
+@
+text
+@d1 2
+a2 2
+#ifndef __SBI4000_h__
+#define __SBI4000_h__
+d13 1
+a13 1
+class SBI4000 : public Client {
+d26 1
+a26 1
+    SBI4000( void ) ;
+d31 1
+a31 1
+#endif // __SBI4000_h__
+@
+
+
+5.1.8.1551
+log
+@5.1.8.1551
+@
+text
+@d14 7
+a20 7
+    // virtual int DeviceOpen( void ) ;
+    // virtual int HandleRequest( void ) ;
+    // virtual void DeviceClose( void ) ;
+
+    // enum FW_state_select { FW_state, FW_goal } ;
+    // int UpdateFWState( FW_state_select, u_char* ) ;
+    static int const nPeriodics = 3 ;
+d22 3
+a24 2
+    // virtual void StartPeriodicTasks( void ) ;
+    // virtual void StopPeriodicTasks( void ) ;
+d27 2
+a28 2
+    // virtual void StartOps( void ) ;
+    // virtual int ListOptions( int, u_char *, int ) ;
+@
+
+
+5.1.8.1553
+log
+@5.1.8.1553
+@
+text
+@d26 2
+a27 2
+    virtual void StartOps( void ) ;
+    virtual int ListOptions( int, u_char *, int ) ;
+@
+
+
+5.1.8.1554
+log
+@5.1.8.1554
+@
+text
+@d22 2
+a23 2
+    virtual void StartPeriodicTasks( void ) ;
+    virtual void StopPeriodicTasks( void ) ;
+@
+
+
+5.1.8.1555
+log
+@5.1.8.1555
+@
+text
+@d14 1
+a14 1
+    virtual int DeviceOpen( void ) ;
+d16 1
+a16 1
+    virtual void DeviceClose( void ) ;
+@
+
+
+5.1.8.1556
+log
+@5.1.8.1556
+@
+text
+@d15 1
+a15 1
+    virtual int HandleRequest( void ) ;
+@
+
+
+5.1.8.1557
+log
+@5.1.8.1557
+@
+text
+@d18 2
+a23 1
+
+@
+
+
+5.1.8.1560
+log
+@5.1.8.1560
+@
+text
+@a22 2
+    int AddressSBI4000( u_char *, int ) ;
+
+@
+
+
+5.1.8.1569
+log
+@5.1.8.1569
+@
+text
+@d18 1
+a18 1
+    static int const nPeriodics = 1 ;
+@
+
+
+5.1.8.1572
+log
+@5.1.8.1572
+@
+text
+@d18 1
+a18 1
+    static int const nPeriodics = 3 ;
+@

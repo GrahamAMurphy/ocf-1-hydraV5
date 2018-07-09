@@ -1,0 +1,18 @@
+# Name       Type         Setup Information
+#
+Epoch	1291992075.0 # Unix time offset for 2010 December.
+
+<Sequencer>    			network-server
+options	<Sequencer>    		<port=5000> 
+
+
+<NewportTH>     network-client-NewportTH
+#options <NewportTH>     <target=eisb5f3.jhuapl.edu,port=2000>
+options <NewportTH>     <target=localhost,port=2000>
+options <NewportTH>     <output-termination=none>
+options <NewportTH>     <input-termination=none>
+
+options	<Sequencer>    		<enable>
+options <NewportTH>           	<enable>
+
+exit

@@ -1,0 +1,1095 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.10.1597
+	murphy:5.1.8.1588
+	murphy:5.1.9.1593; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.19.22;	author murphy;	state Exp;
+branches
+	5.1.8.1
+	5.1.9.1593
+	5.1.10.1597;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.19.23;	author murphy;	state Exp;
+branches;
+next	5.1.8.1548;
+
+5.1.8.1548
+date	2014.11.11.12.20.09;	author murphy;	state Exp;
+branches;
+next	5.1.8.1549;
+
+5.1.8.1549
+date	2014.11.11.12.22.31;	author murphy;	state Exp;
+branches;
+next	5.1.8.1552;
+
+5.1.8.1552
+date	2014.11.11.12.59.19;	author murphy;	state Exp;
+branches;
+next	5.1.8.1558;
+
+5.1.8.1558
+date	2014.11.11.13.14.45;	author murphy;	state Exp;
+branches;
+next	5.1.8.1559;
+
+5.1.8.1559
+date	2014.11.11.13.15.24;	author murphy;	state Exp;
+branches;
+next	5.1.8.1561;
+
+5.1.8.1561
+date	2014.11.11.13.20.19;	author murphy;	state Exp;
+branches;
+next	5.1.8.1562;
+
+5.1.8.1562
+date	2014.11.11.13.20.33;	author murphy;	state Exp;
+branches;
+next	5.1.8.1563;
+
+5.1.8.1563
+date	2014.11.11.13.24.31;	author murphy;	state Exp;
+branches;
+next	5.1.8.1566;
+
+5.1.8.1566
+date	2014.11.11.13.32.28;	author murphy;	state Exp;
+branches;
+next	5.1.8.1567;
+
+5.1.8.1567
+date	2014.11.11.13.34.05;	author murphy;	state Exp;
+branches;
+next	5.1.8.1568;
+
+5.1.8.1568
+date	2014.11.11.13.34.43;	author murphy;	state Exp;
+branches;
+next	5.1.8.1570;
+
+5.1.8.1570
+date	2014.11.11.13.35.09;	author murphy;	state Exp;
+branches;
+next	5.1.8.1571;
+
+5.1.8.1571
+date	2014.11.11.13.36.59;	author murphy;	state Exp;
+branches;
+next	5.1.8.1573;
+
+5.1.8.1573
+date	2014.11.11.13.46.15;	author murphy;	state Exp;
+branches;
+next	5.1.8.1574;
+
+5.1.8.1574
+date	2014.11.11.13.49.23;	author murphy;	state Exp;
+branches;
+next	5.1.8.1575;
+
+5.1.8.1575
+date	2014.11.11.13.49.40;	author murphy;	state Exp;
+branches;
+next	5.1.8.1576;
+
+5.1.8.1576
+date	2014.11.11.14.09.02;	author murphy;	state Exp;
+branches;
+next	5.1.8.1577;
+
+5.1.8.1577
+date	2014.11.11.14.09.35;	author murphy;	state Exp;
+branches;
+next	5.1.8.1578;
+
+5.1.8.1578
+date	2014.11.11.14.47.33;	author murphy;	state Exp;
+branches;
+next	5.1.8.1579;
+
+5.1.8.1579
+date	2014.11.11.14.50.01;	author murphy;	state Exp;
+branches;
+next	5.1.8.1580;
+
+5.1.8.1580
+date	2014.11.11.14.50.41;	author murphy;	state Exp;
+branches;
+next	5.1.8.1581;
+
+5.1.8.1581
+date	2014.11.11.14.50.55;	author murphy;	state Exp;
+branches;
+next	5.1.8.1582;
+
+5.1.8.1582
+date	2014.11.11.14.53.27;	author murphy;	state Exp;
+branches;
+next	5.1.8.1583;
+
+5.1.8.1583
+date	2014.11.11.14.55.50;	author murphy;	state Exp;
+branches;
+next	5.1.8.1585;
+
+5.1.8.1585
+date	2014.11.11.14.59.07;	author murphy;	state Exp;
+branches;
+next	5.1.8.1586;
+
+5.1.8.1586
+date	2014.11.11.15.00.28;	author murphy;	state Exp;
+branches;
+next	5.1.8.1587;
+
+5.1.8.1587
+date	2014.11.11.15.02.33;	author murphy;	state Exp;
+branches;
+next	5.1.8.1588;
+
+5.1.8.1588
+date	2014.11.11.15.13.08;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.9.1593
+date	2015.01.07.19.14.24;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.10.1597
+date	2015.07.28.16.07.19;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@2014-11-11 07:19:06 gam-1
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "filterwheel.h"
+#include "support.h"
+#include "periodic.h"
+
+FilterWheel::FilterWheel( void )
+{
+    devtype = TypeFilterWheel ;
+    devtypestring = "Filter Wheel" ;
+    cycle = 100000 ; // 100.0 secs
+    delay = 5000 ; // 5.0 secs
+    fw_state = fw_goal = -1 ;
+    DODBG(9)(DBGDEV, "Leaving filterwheel constructor.\n" ) ; 
+}
+
+void FilterWheel::StartOps( void )
+{
+    DODBG(9)(DBGDEV, "%s: FilterWheel being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( 1 ) ; // One key state.
+
+    u_char temp[256] ;
+    snprintf( CP temp, 256, "%s get", getAlias() ) ;
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp ) ;
+
+    StartThread() ;
+}
+
+void FilterWheel::StartPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->SetPeriod( mPeriodics[i], cycle ) ;
+	PeriodicQ->Schedule( mPeriodics[i], delay ) ;
+	PeriodicQ->Enable( mPeriodics[i] ) ;
+    }
+}
+
+void FilterWheel::StopPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->Disable( mPeriodics[i] ) ;
+    }
+}
+
+int FilterWheel::DeviceOpen( void )
+{
+    StartPeriodicTasks() ;
+    return( true ) ;
+}
+
+void FilterWheel::DeviceClose( void )
+{
+    StopPeriodicTasks() ;
+}
+
+int FilterWheel::UpdateFWState( FW_state_select FW_select, u_char *a_string )
+{
+    int retval = true ;
+
+    int new_state = -1 ;
+    int nscan = sscanf( CP a_string, "%*s %d", &new_state ) ;
+    if( nscan != 1 )
+	return( false ) ;
+
+    if( FW_select == FW_state ) {
+	int rx_state = new_state ;
+	if( rx_state >= 0 && rx_state <= 6 ) {
+	    fw_state = rx_state ; 
+	} else {
+	    retval = false ;
+	}
+    } else {
+	int tx_goal = new_state ;
+	if( tx_goal >= 0 && tx_goal <= 6 ) {
+	    fw_goal = tx_goal ;
+	}
+    }
+    return( retval ) ;
+}
+
+#define NOSTATUS	NoStatus(0)
+
+// Only returns false if we deem a communication error demands or implies
+// a disconnect.
+int FilterWheel::AddressFilter( u_char *resp, int mlen )
+{
+    u_char command[256] ;
+    u_char tmp[256] ;
+
+    if( client_cmd.nCmds==2 && STRCASECMP( client_cmd.cmd[1], "get" ) == 0 ) {
+	int nexc = Exchange( UCP "?FILTER", w_timeo, tmp, sizeof(tmp), r_timeo);
+	if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+
+	if( UpdateFWState( FW_state, tmp ) ) {
+	    snprintf( CP resp, mlen, "%d", fw_state ) ;
+	    AddStatus( 0, UCP "Position", resp ) ;
+	} else {
+	    SET_409_BADRESP(resp,mlen,tmp) ;
+	    NOSTATUS ;
+	    errors++ ;
+	}
+	return( true ) ;
+    }
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[1], "goto" ) == 0 ) {
+	UpdateFWState( FW_goal, client_cmd.cmd[2] ) ;
+
+	snprintf( CP command, sizeof(command), "%s FILTER", client_cmd.cmd[2] );
+
+	// The filter wheel doesn't ack, so we provide a very short
+	// timeout just in case some error occured, and then ignore the
+	// nread.
+	int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+	if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+
+	return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[1] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", 
+	client_cmd.cmd[1], name ) ;
+    return( true ) ;
+}
+
+int FilterWheel::HandleRequest( void )
+{
+    if( Client::HandleRequest() )
+        return( true ) ;
+
+    if( client_cmd.nCmds < 2 ) {
+	DODBG(0)(DBGDEV, "Null command: %s\n", client_cmd.cmd[1] ) ;
+	mQueue->SetResponse( ERR_408_BADCMD ) ;
+	return( true ) ;
+    }
+
+    u_char response[256] ;
+
+    int retval = AddressFilter( response, sizeof(response) ) ;
+    mQueue->SetResponse( response ) ;
+    DODBG(0)( DBGDEV, "Response of %s: <%s>\n", name, response ) ;
+    StatusLog->L_Command_U( name, mQueue->GetRequest(), response ) ;
+    return( retval ) ;
+}
+
+static const char* cClientOptions[] = {
+    "get",
+    "goto %d"
+    } ;
+
+int FilterWheel::ListOptions( int iN, u_char *cOption, int iOptionLength )
+{
+    int M = 0 ;
+    strcpy( CP cOption, "" ) ;
+
+    int iMax = sizeof(cClientOptions)/sizeof(char*) ;
+
+    if( 0 <= iN && iN < iMax ) {
+        strncpy( CP cOption, cClientOptions[iN], iOptionLength ) ;
+	M = strlen( CP cOption ) ;
+    } else {
+	M = Client::ListOptions( iN-iMax, cOption, iOptionLength ) ;
+    }
+    return( M ) ;
+}
+@
+
+
+5.1.10.1597
+log
+@5.1.10.1597
+@
+text
+@d15 1
+a15 1
+#include "sbi4000.h"
+d19 1
+a19 1
+SBI4000::SBI4000( void )
+d21 6
+a26 5
+    devtype = TypeSBI4000 ;
+    devtypestring = "SBI 4000 Blackbody Controller" ;
+    cycle = 30000 ; // 30.0 secs
+    delay = 5678 ; // 5.0 secs
+    DODBG(9)(DBGDEV, "Leaving sbi4000 constructor.\n" ) ; 
+d29 1
+a29 1
+void SBI4000::StartOps( void )
+d31 2
+a32 2
+    DODBG(9)(DBGDEV, "%s: SBI4000 being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( 3 ) ; // Three key state.
+d35 1
+a35 1
+    snprintf( CP temp, 256, "%s get temp", getAlias() ) ;
+a37 6
+    snprintf( CP temp, 256, "%s get status", getAlias() ) ;
+    mPeriodics[1] = PeriodicQ->Add( getDevice(), temp ) ;
+
+    snprintf( CP temp, 256, "%s get errors", getAlias() ) ;
+    mPeriodics[2] = PeriodicQ->Add( getDevice(), temp ) ;
+
+d41 1
+a41 1
+void SBI4000::StartPeriodicTasks( void )
+d45 1
+a45 1
+	PeriodicQ->Schedule( mPeriodics[i], (i+1)*delay ) ;
+d50 1
+a50 1
+void SBI4000::StopPeriodicTasks( void )
+d57 1
+a57 1
+int SBI4000::DeviceOpen( void )
+d63 1
+a63 1
+void SBI4000::DeviceClose( void )
+d68 25
+d97 1
+a97 1
+int SBI4000::AddressSBI4000( u_char *resp, int mlen )
+d102 12
+a113 35
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[1], "get" ) == 0 ) {
+
+	if( STRCASECMP( client_cmd.cmd[2], "temp" ) == 0 ) {
+	    int nexc = Exchange( UCP "MT", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    if( strncasecmp( CP tmp, "T=", 2 ) == 0 ) {
+		double dTemp = strtod( CP tmp+2, NULL ) ;
+		snprintf( CP resp, mlen, "%.1f", dTemp ) ;
+		AddStatus( 0, UCP "Temperature", resp ) ;
+		return( true ) ;
+	    }
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+	}
+	if( STRCASECMP( client_cmd.cmd[2], "status" ) == 0 ) {
+	    int nexc = Exchange( UCP "MS", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    if( strncasecmp( CP tmp, "SR=", 3 ) == 0 ) {
+		strncpy( CP resp, CP tmp+3, mlen ) ;
+		AddStatus( 1, UCP "Status", resp ) ;
+		return( true ) ;
+	    }
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+	}
+	if( STRCASECMP( client_cmd.cmd[2], "errors" ) == 0 ) {
+	    int nexc = Exchange( UCP "ME", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    if( strncasecmp( CP tmp, "ER=", 3 ) == 0 ) {
+		strncpy( CP resp, CP tmp+3, mlen ) ;
+		AddStatus( 2, UCP "Errors", resp ) ;
+		return( true ) ;
+	    }
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+d115 1
+d118 2
+a119 1
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[1], "set" ) == 0 ) {
+d121 1
+a121 3
+	double dTemp = strtod( CP client_cmd.cmd[2], NULL ) ;
+	snprintf( CP command, sizeof(command), "D%05.1f", dTemp );
+	fprintf( stderr, "Try: <%s>\n", command ) ;
+d123 3
+a125 1
+	/* Don't worry about return value */
+a129 1
+	strncpy( CP resp, ERR_107_IGN, mlen ) ;
+d134 2
+a135 1
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[1], name ) ;
+d139 1
+a139 1
+int SBI4000::HandleRequest( void )
+d152 1
+a152 1
+    int retval = AddressSBI4000( response, sizeof(response) ) ;
+d154 1
+a154 1
+    DODBG(5)( DBGDEV, "Response of %s: <%s>\n", name, response ) ;
+d160 2
+a161 4
+    "get temp",
+    "get status",
+    "get error",
+    "set %5.1f"
+d164 1
+a164 1
+int SBI4000::ListOptions( int iN, u_char *cOption, int iOptionLength )
+@
+
+
+5.1.9.1593
+log
+@5.1.9.1593
+@
+text
+@d15 1
+a15 1
+#include "sbi4000.h"
+d19 1
+a19 1
+SBI4000::SBI4000( void )
+d21 6
+a26 5
+    devtype = TypeSBI4000 ;
+    devtypestring = "SBI 4000 Blackbody Controller" ;
+    cycle = 30000 ; // 30.0 secs
+    delay = 5678 ; // 5.0 secs
+    DODBG(9)(DBGDEV, "Leaving sbi4000 constructor.\n" ) ; 
+d29 1
+a29 1
+void SBI4000::StartOps( void )
+d31 2
+a32 2
+    DODBG(9)(DBGDEV, "%s: SBI4000 being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( 3 ) ; // Three key state.
+d35 1
+a35 1
+    snprintf( CP temp, 256, "%s get temp", getAlias() ) ;
+a37 6
+    snprintf( CP temp, 256, "%s get status", getAlias() ) ;
+    mPeriodics[1] = PeriodicQ->Add( getDevice(), temp ) ;
+
+    snprintf( CP temp, 256, "%s get errors", getAlias() ) ;
+    mPeriodics[2] = PeriodicQ->Add( getDevice(), temp ) ;
+
+d41 1
+a41 1
+void SBI4000::StartPeriodicTasks( void )
+d45 1
+a45 1
+	PeriodicQ->Schedule( mPeriodics[i], (i+1)*delay ) ;
+d50 1
+a50 1
+void SBI4000::StopPeriodicTasks( void )
+d57 1
+a57 1
+int SBI4000::DeviceOpen( void )
+d63 1
+a63 1
+void SBI4000::DeviceClose( void )
+d68 25
+d97 1
+a97 1
+int SBI4000::AddressSBI4000( u_char *resp, int mlen )
+d102 12
+a113 35
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[1], "get" ) == 0 ) {
+
+	if( STRCASECMP( client_cmd.cmd[2], "temp" ) == 0 ) {
+	    int nexc = Exchange( UCP "MT", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    if( strncasecmp( CP tmp, "T=", 2 ) == 0 ) {
+		double dTemp = strtod( CP tmp+2, NULL ) ;
+		snprintf( CP resp, mlen, "%.1f", dTemp ) ;
+		AddStatus( 0, UCP "Temperature", resp ) ;
+		return( true ) ;
+	    }
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+	}
+	if( STRCASECMP( client_cmd.cmd[2], "status" ) == 0 ) {
+	    int nexc = Exchange( UCP "MS", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    if( strncasecmp( CP tmp, "SR=", 3 ) == 0 ) {
+		strncpy( CP resp, CP tmp+3, mlen ) ;
+		AddStatus( 1, UCP "Status", resp ) ;
+		return( true ) ;
+	    }
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+	}
+	if( STRCASECMP( client_cmd.cmd[2], "errors" ) == 0 ) {
+	    int nexc = Exchange( UCP "ME", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    if( strncasecmp( CP tmp, "ER=", 3 ) == 0 ) {
+		strncpy( CP resp, CP tmp+3, mlen ) ;
+		AddStatus( 2, UCP "Errors", resp ) ;
+		return( true ) ;
+	    }
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+d115 1
+d118 2
+a119 1
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[1], "set" ) == 0 ) {
+d121 1
+a121 3
+	double dTemp = strtod( CP client_cmd.cmd[2], NULL ) ;
+	snprintf( CP command, sizeof(command), "D%05.1f", dTemp );
+	fprintf( stderr, "Try: <%s>\n", command ) ;
+d123 3
+a125 1
+	/* Don't worry about return value */
+a129 1
+	strncpy( CP resp, ERR_107_IGN, mlen ) ;
+d134 2
+a135 1
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[1], name ) ;
+d139 1
+a139 1
+int SBI4000::HandleRequest( void )
+d152 1
+a152 1
+    int retval = AddressSBI4000( response, sizeof(response) ) ;
+d154 1
+a154 1
+    DODBG(5)( DBGDEV, "Response of %s: <%s>\n", name, response ) ;
+d160 2
+a161 4
+    "get temp",
+    "get status",
+    "get error",
+    "set %5.1f"
+d164 1
+a164 1
+int SBI4000::ListOptions( int iN, u_char *cOption, int iOptionLength )
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+5.1.8.1548
+log
+@5.1.8.1548
+@
+text
+@d19 1
+a19 1
+SBI4000::SBI4000( void )
+d21 1
+a21 1
+    devtype = TypeSBI4000 ;
+d29 1
+a29 1
+void SBI4000::StartOps( void )
+d31 1
+a31 1
+    DODBG(9)(DBGDEV, "%s: SBI4000 being started up.\n", name ) ;
+d41 1
+a41 1
+void SBI4000::StartPeriodicTasks( void )
+d50 1
+a50 1
+void SBI4000::StopPeriodicTasks( void )
+d57 1
+a57 1
+int SBI4000::DeviceOpen( void )
+d63 1
+a63 1
+void SBI4000::DeviceClose( void )
+d68 1
+a68 1
+int SBI4000::UpdateFWState( FW_state_select FW_select, u_char *a_string )
+d97 1
+a97 1
+int SBI4000::AddressFilter( u_char *resp, int mlen )
+d139 1
+a139 1
+int SBI4000::HandleRequest( void )
+d164 1
+a164 1
+int SBI4000::ListOptions( int iN, u_char *cOption, int iOptionLength )
+@
+
+
+5.1.8.1549
+log
+@5.1.8.1549
+@
+text
+@d15 1
+a15 1
+#include "sbi4000.h"
+d26 1
+a26 1
+    DODBG(9)(DBGDEV, "Leaving sbi4000 constructor.\n" ) ; 
+@
+
+
+5.1.8.1552
+log
+@5.1.8.1552
+@
+text
+@d22 2
+a23 2
+    devtypestring = "SBI 4000 Blackbody Controller" ;
+    cycle = 10000 ; // 10.0 secs
+d25 1
+d32 1
+a32 1
+    mStatus = OCF_Status->RequestStatus( 3 ) ; // Three key state.
+d35 1
+a35 1
+    snprintf( CP temp, 256, "%s get temp", getAlias() ) ;
+a37 6
+    snprintf( CP temp, 256, "%s get status", getAlias() ) ;
+    mPeriodics[1] = PeriodicQ->Add( getDevice(), temp ) ;
+
+    snprintf( CP temp, 256, "%s get error", getAlias() ) ;
+    mPeriodics[2] = PeriodicQ->Add( getDevice(), temp ) ;
+
+d66 25
+@
+
+
+5.1.8.1558
+log
+@5.1.8.1558
+@
+text
+@d77 1
+a77 1
+int SBI4000::AddressSBI4000( u_char *resp, int mlen )
+d132 1
+a132 1
+    int retval = AddressSBI4000( response, sizeof(response) ) ;
+@
+
+
+5.1.8.1559
+log
+@5.1.8.1559
+@
+text
+@d140 2
+a141 4
+    "get temp",
+    "get status",
+    "get error",
+    "set %d"
+@
+
+
+5.1.8.1561
+log
+@5.1.8.1561
+@
+text
+@a82 1
+
+d98 2
+a99 3
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[1], "set" ) == 0 ) {
+
+	double dTemp = strtod( CP client_cmd.cmd[2], NULL )
+d101 1
+a101 1
+	snprintf( CP command, sizeof(command), "D%04.1f", dTemp );
+d103 4
+a106 1
+	int nexc = Exchange( command, w_timeo, resp, mlen, r_timeo ) ;
+@
+
+
+5.1.8.1562
+log
+@5.1.8.1562
+@
+text
+@d101 2
+a102 1
+	double dTemp = strtod( CP client_cmd.cmd[2], NULL ) ;
+@
+
+
+5.1.8.1563
+log
+@5.1.8.1563
+@
+text
+@d82 1
+a82 1
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[1], "get" ) == 0 ) {
+d84 11
+a94 20
+	if( STRCASECMP( client_cmd.cmd[2], "temp" ) == 0 ) {
+	    int nexc = Exchange( UCP "MT", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    AddStatus( 0, UCP "Temperature", resp ) ;
+	    return( true ) ;
+	}
+	if( STRCASECMP( client_cmd.cmd[2], "status" ) == 0 ) {
+	    int nexc = Exchange( UCP "MS", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    AddStatus( 1, UCP "Status", resp ) ;
+	    return( true ) ;
+	}
+	if( STRCASECMP( client_cmd.cmd[2], "errors" ) == 0 ) {
+	    int nexc = Exchange( UCP "ME", w_timeo, tmp, sizeof(tmp), r_timeo);
+	    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+	    AddStatus( 2, UCP "Errors", resp ) ;
+	    return( true ) ;
+d96 1
+@
+
+
+5.1.8.1566
+log
+@5.1.8.1566
+@
+text
+@d85 1
+a85 1
+	    int nexc = Exchange( UCP "MT", w_timeo, resp, sizeof(resp), r_timeo);
+d92 1
+a92 1
+	    int nexc = Exchange( UCP "MS", w_timeo, resp, sizeof(resp), r_timeo);
+d99 1
+a99 1
+	    int nexc = Exchange( UCP "ME", w_timeo, resp, sizeof(resp), r_timeo);
+@
+
+
+5.1.8.1567
+log
+@5.1.8.1567
+@
+text
+@d40 1
+a40 1
+    snprintf( CP temp, 256, "%s get errors", getAlias() ) ;
+@
+
+
+5.1.8.1568
+log
+@5.1.8.1568
+@
+text
+@a85 2
+	    fprintf( stderr, "<<<%d %s>>\n", nexc, resp ) ;
+
+@
+
+
+5.1.8.1570
+log
+@5.1.8.1570
+@
+text
+@a36 1
+/*
+a41 1
+*/
+@
+
+
+5.1.8.1571
+log
+@5.1.8.1571
+@
+text
+@d87 1
+a87 1
+	    int nexc = Exchange( UCP "MT", w_timeo, resp, mlen, r_timeo);
+d96 1
+a96 1
+	    int nexc = Exchange( UCP "MS", w_timeo, resp, mlen, r_timeo);
+d103 1
+a103 1
+	    int nexc = Exchange( UCP "ME", w_timeo, resp, mlen, r_timeo);
+@
+
+
+5.1.8.1573
+log
+@5.1.8.1573
+@
+text
+@d37 1
+d43 1
+d88 2
+@
+
+
+5.1.8.1574
+log
+@5.1.8.1574
+@
+text
+@d23 2
+a24 2
+    cycle = 30000 ; // 30.0 secs
+    delay = 5678 ; // 5.0 secs
+d50 1
+a50 1
+	PeriodicQ->Schedule( mPeriodics[i], (i+1)*delay ) ;
+@
+
+
+5.1.8.1575
+log
+@5.1.8.1575
+@
+text
+@a47 1
+    return ;
+@
+
+
+5.1.8.1576
+log
+@5.1.8.1576
+@
+text
+@a88 3
+	    if( strncasecmp( resp, "T=", 2 ) == 0 ) {
+
+	    }
+a111 1
+	fprintf( stderr, "Try: <%s>\n", command ) ;
+d113 1
+a113 2
+	/* Don't worry about return value */
+	int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+d121 2
+a122 1
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[1], name ) ;
+@
+
+
+5.1.8.1577
+log
+@5.1.8.1577
+@
+text
+@d89 1
+a89 1
+	    if( strncasecmp( CP resp, "T=", 2 ) == 0 ) {
+@
+
+
+5.1.8.1578
+log
+@5.1.8.1578
+@
+text
+@d86 1
+a86 1
+	    int nexc = Exchange( UCP "MT", w_timeo, tmp, sizeof(tmp), r_timeo);
+d89 2
+a90 5
+	    if( strncasecmp( CP tmp, "T=", 2 ) == 0 ) {
+		double dTemp = strtod( tmp+2 ) ;
+		snprintf( resp, mlen, "%.1f", dTemp ) ;
+		AddStatus( 0, UCP "Temperature", resp ) ;
+		return( true ) ;
+d92 2
+a93 1
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+d96 1
+a96 1
+	    int nexc = Exchange( UCP "MS", w_timeo, tmp, sizeof(tmp), r_timeo);
+d99 2
+a100 5
+	    if( strncasecmp( CP tmp, "SR=", 3 ) == 0 ) {
+		AddStatus( 1, UCP "Status", resp ) ;
+		return( true ) ;
+	    }
+	    NOSTATUS; SET_409_BADRESP(resp,mlen); return(false);
+d103 1
+a103 1
+	    int nexc = Exchange( UCP "ME", w_timeo, tmp, sizeof(tmp), r_timeo);
+d106 2
+a107 5
+	    if( strncasecmp( CP tmp, "ER=", 3 ) == 0 ) {
+		AddStatus( 2, UCP "Errors", resp ) ;
+		return( true ) ;
+	    }
+	    NOSTATUS; SET_409_BADRESP(resp,mlen); return(false);
+@
+
+
+5.1.8.1579
+log
+@5.1.8.1579
+@
+text
+@a101 1
+		strncpy( resp, tmp+3, mlen ) ;
+d105 1
+a105 1
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+a111 1
+		strncpy( resp, tmp+3, mlen ) ;
+d115 1
+a115 1
+	    NOSTATUS; SET_409_BADRESP(resp,mlen,tmp); return(false);
+@
+
+
+5.1.8.1580
+log
+@5.1.8.1580
+@
+text
+@d90 2
+a91 2
+		double dTemp = strtod( CP tmp+2 ) ;
+		snprintf( CP resp, mlen, "%.1f", dTemp ) ;
+d102 1
+a102 1
+		strncpy( CP resp, CP tmp+3, mlen ) ;
+d113 1
+a113 1
+		strncpy( CP resp, CP tmp+3, mlen ) ;
+@
+
+
+5.1.8.1581
+log
+@5.1.8.1581
+@
+text
+@d90 1
+a90 1
+		double dTemp = strtod( CP tmp+2, NULL ) ;
+@
+
+
+5.1.8.1582
+log
+@5.1.8.1582
+@
+text
+@d124 1
+a124 1
+	snprintf( CP command, sizeof(command), "D%05.1f", dTemp );
+@
+
+
+5.1.8.1583
+log
+@5.1.8.1583
+@
+text
+@a131 1
+	ERR_106_NULL(resp,mlen) ;
+@
+
+
+5.1.8.1585
+log
+@5.1.8.1585
+@
+text
+@d132 1
+a132 1
+	strncpy( CP resp, ERR_107_IGN, mlen ) ;
+@
+
+
+5.1.8.1586
+log
+@5.1.8.1586
+@
+text
+@d48 1
+@
+
+
+5.1.8.1587
+log
+@5.1.8.1587
+@
+text
+@d155 1
+a155 1
+    DODBG(5)( DBGDEV, "Response of %s: <%s>\n", name, response ) ;
+@
+
+
+5.1.8.1588
+log
+@5.1.8.1588
+@
+text
+@d164 1
+a164 1
+    "set %5.1f"
+@

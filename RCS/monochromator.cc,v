@@ -1,0 +1,1211 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.9;
+
+1.9
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.07.22.18.34.23;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.07.13.13.10.21;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working. Supports SR630.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "monochromator.h"
+#include "support.h"
+#include "periodic.h"
+
+Monochromator::Monochromator( void )
+{
+    devtype = TypeMonochromator ;
+    devtypestring = "Monochromator" ;
+    cycle = 0 ; // Just once.
+    delay = 1000 ; // 1.0 secs
+    flush_after_timeout = true ;
+    DODBG(9)(DBGDEV, "Leaving monochromator constructor.\n" ) ; 
+}
+
+void Monochromator::StartOps( void )
+{
+    DODBG(9)(DBGDEV, "%s: Monochromator being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( 5 ) ; // Two key states.
+
+    u_char temp[256] ;
+    const char *(fmts)[3] = { 
+	"%s wlen get", 
+	"%s filter get",
+	"%s grating get"
+	} ;
+
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	snprintf( CP temp, 256, fmts[i], getAlias() ) ;
+	mPeriodics[i] = PeriodicQ->Add( getDevice(), temp ) ;
+    }
+
+    StartThread() ;
+}
+
+void Monochromator::StartPeriodicTasks( void )
+{
+    if( delay < 0 ) delay = cycle ;
+
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->SetPeriod( mPeriodics[i], cycle ) ;
+	PeriodicQ->Schedule( mPeriodics[i], delay + 2500*i ) ;
+	PeriodicQ->Enable( mPeriodics[i] ) ;
+    }
+}
+
+void Monochromator::StopPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->Disable( mPeriodics[i] ) ;
+    }
+}
+
+int Monochromator::DeviceOpen( void )
+{
+    StartPeriodicTasks() ;
+    return( true ) ;
+}
+
+void Monochromator::DeviceClose( void )
+{
+    StopPeriodicTasks() ;
+}
+
+
+// Only returns false if we deem a communication error demands or implies
+// a disconnect.
+int Monochromator::AddressWavelengthNM( u_char *resp, int mlen ) 
+{
+    u_char command[256] ;
+    u_char tmp[256] ;
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+        int nexc = Exchange( UCP "?NM", w_timeo, tmp, sizeof(tmp), r_timeo ) ;
+        if( nexc < 0 ) { 
+	    NoStatus(0) ; SET_406_BADCON(resp,mlen) ; return( false ) ;
+	}
+	if( nexc == 0 ) { 
+	    NoStatus(0) ; SET_407_DEVTO(resp,mlen) ; return( true ) ; 
+	}
+
+	// Parse out return value.
+	double value1 ;
+	int nscan = sscanf( CP tmp, "?NM %lf", &value1 ) ;
+	if( nscan != 1 ) {
+	    NoStatus(0) ;
+	    SET_409_BADRESP(resp,mlen,tmp) ;
+	    return( true ) ;
+	}
+	snprintf( CP resp, mlen, "%.4f", value1 ) ;
+	AddStatus( 0, UCP "Wavelength", resp ) ;
+	return( true ) ;
+    }
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "goto" ) == 0 ) {
+	double posn = strtod( CP client_cmd.cmd[3], 0 ) ;
+	snprintf( CP command, sizeof(command), "%.1f >NM", posn ) ;
+        int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+
+	return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", 
+        client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+}
+
+// Only returns false if we deem a communication error demands or implies
+// a disconnect.
+int Monochromator::AddressWavelength( u_char *resp, int mlen ) 
+{
+    u_char command[256] ;
+    u_char tmp[256] ;
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+        int nexc = Exchange( UCP "?NM", w_timeo, tmp, sizeof(tmp), r_timeo ) ;
+        if( nexc < 0 ) { 
+	    NoStatus(0) ; SET_406_BADCON(resp,mlen) ; return( false ) ;
+	}
+	if( nexc == 0 ) { 
+	    NoStatus(0) ; SET_407_DEVTO(resp,mlen) ; return( true ) ; 
+	}
+
+	// Parse out return value.
+	double value1 ;
+	int nscan = sscanf( CP tmp, "?NM %lf", &value1 ) ;
+	if( nscan != 1 ) {
+	    NoStatus(0) ;
+	    SET_409_BADRESP(resp,mlen,tmp) ;
+	    return( true ) ;
+	}
+	snprintf( CP resp, mlen, "%.4f", value1 ) ;
+	AddStatus( 0, UCP "Wavelength", resp ) ;
+	return( true ) ;
+    }
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "goto" ) == 0 ) {
+	double posn = strtod( CP client_cmd.cmd[3], 0 ) ;
+	snprintf( CP command, sizeof(command), "/%.1f GOTO", posn ) ;
+        int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+	return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", 
+        client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+}
+
+int Monochromator::AddressMirror( u_char *resp, int mlen )
+{
+    u_char tmp[256] ;
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+        int nexc = Exchange( UCP "?MIRROR", w_timeo, tmp, sizeof(tmp), r_timeo);
+        if( nexc < 0 ) { 
+	    NoStatus(1) ; SET_406_BADCON(resp,mlen) ; return( false ) ;
+	} 
+	if( nexc == 0 ) { 
+	    NoStatus(1) ; SET_407_DEVTO(resp,mlen) ; return( true ) ;
+	} 
+	u_char sMirror[64] ;
+	int nscan = sscanf( CP tmp, "%*s %s", sMirror ) ;
+	if( nscan != 1 ) {
+	    NoStatus(2) ;
+	    SET_409_BADRESP(resp,mlen,tmp) ;
+	    return( true ) ;
+	}
+	AddStatus( 2, UCP "Mirror", sMirror ) ;
+	snprintf( CP resp, mlen, "%s", sMirror ) ;
+	return( true ) ;
+    }
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "entrance" ) == 0 ) {
+        int nexc = Exchange( UCP "ENT-MIRROR", w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+	AddStatus( 1, UCP "Mirror", resp ) ;
+	return( true ) ;
+    } 
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "exit" ) == 0 ) {
+        int nexc = Exchange( UCP "EXIT-MIRROR", w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+	AddStatus( 1, UCP "Mirror", resp ) ;
+	return( true ) ;
+    } 
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "side" ) == 0 ) {
+        int nexc = Exchange( UCP "SIDE", w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+	AddStatus( 2, UCP "Mirror", resp ) ;
+	return( true ) ;
+    } 
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "front" ) == 0 ) {
+        int nexc = Exchange( UCP "FRONT", w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+	AddStatus( 2, UCP "Mirror", resp ) ;
+	return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", 
+        client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+}
+
+int Monochromator::AddressGrating( u_char *resp, int mlen )
+{
+    u_char command[256] ;
+    u_char tmp[256] ;
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+        int nexc = Exchange( UCP "?GRATING", w_timeo, tmp, sizeof(tmp), r_timeo);
+        if( nexc < 0 ) { 
+	    NoStatus(1) ; SET_406_BADCON(resp,mlen) ; return( false ) ;
+	} 
+	if( nexc == 0 ) { 
+	    NoStatus(1) ; SET_407_DEVTO(resp,mlen) ; return( true ) ;
+	} 
+
+	double value1 ;
+	int nscan = sscanf( CP tmp, "%*s %lf", &value1 ) ;
+	if( nscan != 1 ) {
+	    NoStatus(1) ;
+	    SET_409_BADRESP(resp,mlen,tmp) ;
+	    return( true ) ;
+	}
+	snprintf( CP resp, mlen, "%.0f", value1 ) ;
+	AddStatus( 3, UCP "Grating", resp ) ;
+	return( true ) ;
+    }
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "set" ) == 0 ) {
+	snprintf( CP command, sizeof(command), "%s GRATING", client_cmd.cmd[3] ) ;
+        int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+	return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", 
+        client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+}
+
+int Monochromator::AddressFilter( u_char *resp, int mlen )
+{
+    u_char command[256] ;
+    u_char tmp[256] ;
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+	snprintf( CP command, sizeof(command), "?%s", client_cmd.cmd[1] ) ;
+        int nexc = Exchange( command, w_timeo, tmp, sizeof(tmp), r_timeo ) ;
+        if( nexc < 0 ) { 
+	    NoStatus(1) ; SET_406_BADCON(resp,mlen) ; return( false ) ; 
+	}
+	if( nexc == 0 ) { 
+	    NoStatus(1) ; SET_407_DEVTO(resp,mlen) ; return( true ) ;
+	}
+
+	double value1 ;
+	int nscan = sscanf( CP tmp, "%*s %lf", &value1 ) ;
+	if( nscan != 1 ) {
+	    NoStatus(1) ;
+	    SET_409_BADRESP(resp,mlen,tmp) ;
+	    return( true ) ;
+	}
+	snprintf( CP resp, mlen, "%.0f", value1 ) ;
+	AddStatus( 4, UCP "Filter", resp ) ;
+	return( true ) ;
+    }
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "goto" ) == 0 ) {
+	snprintf( CP command, sizeof(command), "%s %s", 
+	    client_cmd.cmd[3], client_cmd.cmd[1] ) ;
+
+        int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+
+	return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", 
+        client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+}
+
+#define SECS_PER_MINUTE (60)
+
+int Monochromator::AddressRate( u_char *resp, int mlen )
+{
+    u_char command[256] ;
+    u_char tmp[256] ;
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+        int nexc = Exchange( UCP "?NM/MIN", w_timeo, tmp,sizeof(tmp), r_timeo);
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_407_DEVTO(resp,mlen) ; return( true ) ; } 
+
+	double value1 ;
+	int nscan = sscanf( CP tmp, "%*s %lf", &value1 ) ;
+	if( nscan != 1 ) {
+	    SET_407_DEVTO(resp,mlen) ;
+	    return( true ) ;
+	}
+	snprintf( CP resp, mlen, "%.3f", value1/SECS_PER_MINUTE ) ;
+	// No point in adding it to the status.
+	return( true ) ;
+    }
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "clamped" ) == 0 ) {
+/*  	This rate arrives in nm/second and must be converted to nm/min  */
+
+	double rate = strtod( CP client_cmd.cmd[3], 0 ) ;
+
+	snprintf( CP command, sizeof(command), "%.1f NM/MIN", 
+	    rate * SECS_PER_MINUTE ) ;
+
+        int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+	return( true ) ;
+    } 
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "set" ) == 0 ) {
+/*  	This rate arrives in nm/second and must be converted to nm/min  */
+
+	double rate = strtod( CP client_cmd.cmd[3], 0 ) ;
+
+	snprintf( CP command, sizeof(command), "%.1f INIT-SRATE", rate * SECS_PER_MINUTE ) ;
+
+        int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+	return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", 
+        client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+}
+
+int Monochromator::HandleRequest( void )
+{
+    if( Client::HandleRequest() )
+        return( true ) ;
+
+    if( client_cmd.nCmds < 3 ) {
+        DODBG(0)(DBGDEV, "Null or bad command: %s\n", client_cmd.cmd[1] ) ;
+        mQueue->SetResponse( ERR_408_BADCMD ) ;
+        return( true ) ;
+    }
+
+    u_char response[256] ;
+    int retval = 0 ;
+
+    if( strcasecmp( CP client_cmd.cmd[1], "wlen" ) == 0 ) {
+	retval = AddressWavelength( response, sizeof(response) ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "mirror" ) == 0 ) {
+	retval = AddressMirror( response, sizeof(response) ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "grating" ) == 0 ) {
+	retval = AddressGrating( response, sizeof(response) ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "filter" ) == 0 ) {
+	retval = AddressFilter( response, sizeof(response) ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "rate" ) == 0 ) {
+	retval = AddressRate( response, sizeof(response) ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "wlen*" ) == 0 ) {
+	retval = AddressWavelengthNM( response, sizeof(response) ) ;
+    } else {
+	DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[1] ) ;
+	snprintf( CP response, sizeof(response), ERR_408_BADCMD ": %s to %s",
+	client_cmd.cmd[1], name ) ; 
+	retval = true ;
+    }
+
+    mQueue->SetResponse( response ) ; 
+    DODBG(0)( DBGDEV, "client response %s: <%s>\n", name, response ) ;
+    StatusLog->L_Command_U( name, mQueue->GetRequest(), response ) ; 
+    return( retval ) ;
+}
+
+static const char* cClientOptions[] = {
+    "wlen get",
+    "wlen goto %f",
+    "grating get",
+    "grating goto %d",
+    "mirror get",
+    "mirror entrance",
+    "mirror exit",
+    "mirror front",
+    "mirror side",
+    "filter get",
+    "filter goto %d",
+    "rate get",
+    "rate set %f",
+    "rate clamped %f"
+    } ;
+
+int Monochromator::ListOptions( int iN, u_char *cOption, int iOptionLength )
+{
+    int M = 0 ;
+    strcpy( CP cOption, "" ) ;
+
+    int iMax = sizeof(cClientOptions)/sizeof(char*) ;
+    if( 0 <= iN && iN < iMax ) {
+        strncpy( CP cOption, cClientOptions[iN], iOptionLength ) ;
+	M = strlen( CP cOption ) ;
+    } else {
+	M = Client::ListOptions( iN-iMax, cOption, iOptionLength ) ;
+    }
+    return( M ) ;
+}
+
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.9
+log
+@Working system. Backing up.
+@
+text
+@d23 2
+a24 2
+    cycle = 2000000 ; // 2000.0 secs
+    delay = 10000 ; // 10.0 secs
+d32 1
+a32 1
+    mStatus = OCF_Status->RequestStatus( 4 ) ; // Four key states.
+d35 5
+a39 2
+    char *(fmts)[4] = { "%s wlen get", "%s mirror get", 
+	"%s afilter get", "%s bfilter get" } ;
+a68 9
+    int nexc ;
+    u_char resp[256] ;
+    char *command = "30000 ANG/MIN" ;
+
+    StatusLog->L_Write_U( name, "CMD", command ) ;
+    nexc = Exchange( command, w_timeo, resp, sizeof(resp), -r_timeo ) ;
+    // critical command. must get in.
+    if( nexc < 0 ) return( false ) ; // something bad happened.
+
+d81 46
+d142 2
+a143 2
+	double value1, value2 ;
+	int nscan = sscanf( CP tmp, "%lf %lf", &value1, &value2 ) ;
+d149 1
+a149 1
+	snprintf( CP resp, mlen, "%.1f", value1 ) ;
+d156 1
+a156 1
+	snprintf( CP command, sizeof(command), "%.1f NM", posn ) ;
+d160 49
+d210 13
+d233 1
+a233 1
+int Monochromator::AddressMirror( u_char *resp, int mlen )
+d239 1
+a239 1
+        int nexc = Exchange( UCP "?MIRROR", w_timeo, tmp, sizeof(tmp), r_timeo);
+d247 2
+a248 2
+	double value1, value2 ;
+	int nscan = sscanf( CP tmp, "%lf %lf", &value1, &value2 ) ;
+d255 1
+a255 1
+	AddStatus( 1, UCP "Mirror", resp ) ;
+d260 1
+a260 2
+	int mmode = strtol( CP client_cmd.cmd[3], 0, 0 ) ;
+	snprintf( CP command, sizeof(command), "%s", mmode?"MSIDE":"MFRONT" ) ;
+a277 3
+    int w_stat = 0 ;
+
+    if( tolower(client_cmd.cmd[1][0]) == 'b' ) w_stat = 1 ;
+d283 1
+a283 1
+	    NoStatus(2+w_stat) ; SET_406_BADCON(resp,mlen) ; return( false ) ; 
+d286 1
+a286 1
+	    NoStatus(2+w_stat) ; SET_407_DEVTO(resp,mlen) ; return( true ) ;
+d289 2
+a290 2
+	double value1, value2 ;
+	int nscan = sscanf( CP tmp, "%lf %lf", &value1, &value2 ) ;
+d292 1
+a292 1
+	    NoStatus(2+w_stat) ;
+d297 1
+a297 1
+	AddStatus( 2+w_stat, w_stat ? UCP "B Filter" : UCP "A Filter", resp ) ;
+d319 2
+d327 1
+a327 1
+        int nexc = Exchange( UCP "?ANG/MIN", w_timeo, tmp,sizeof(tmp), r_timeo);
+d331 2
+a332 2
+	double value1, value2 ;
+	int nscan = sscanf( CP tmp, "%lf %lf", &value1, &value2 ) ;
+d337 1
+a337 1
+	snprintf( CP resp, mlen, "%.0f", value1 ) ;
+d342 14
+d357 6
+a362 1
+	snprintf( CP command, sizeof(command), "%s ANG/MIN", client_cmd.cmd[3]);
+d394 3
+a396 3
+    } else if( strcasecmp( CP client_cmd.cmd[1], "afilter" ) == 0 ) {
+	retval = AddressFilter( response, sizeof(response) ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "bfilter" ) == 0 ) {
+d400 2
+d414 33
+@
+
+
+1.8
+log
+@Working version.
+@
+text
+@d23 3
+a25 2
+    cycle = 100000 ; // 100.0 secs
+    delay = 11000 ; // 11.0 secs
+d106 1
+a106 1
+	    SET_409_BADRESP(resp,mlen) ;
+d149 1
+a149 1
+	    SET_409_BADRESP(resp,mlen) ;
+d195 1
+a195 1
+	    SET_409_BADRESP(resp,mlen) ;
+@
+
+
+1.7
+log
+@Minor change to http size.
+@
+text
+@d91 1
+a91 1
+    if( strcasecmp( CP client_cmd.cmd[2], "get" ) == 0 ) {
+d93 6
+a98 2
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_407_DEVTO(resp,mlen) ; return( true ) ; } 
+d100 1
+d104 2
+a105 1
+	    SET_407_DEVTO(resp,mlen) ;
+d113 1
+a113 1
+    if( client_cmd.cmd[3] && strcasecmp( CP client_cmd.cmd[2], "goto" ) == 0 ) {
+d135 1
+a135 1
+    if( strcasecmp( CP client_cmd.cmd[2], "get" ) == 0 ) {
+d137 6
+a142 2
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_407_DEVTO(resp,mlen) ; return( true ) ; } 
+d147 2
+a148 1
+	    SET_407_DEVTO(resp,mlen) ;
+d156 1
+a156 1
+    if( client_cmd.cmd[3] && strcasecmp( CP client_cmd.cmd[2], "set" ) == 0 ) {
+d176 1
+d178 3
+a180 1
+    if( strcasecmp( CP client_cmd.cmd[2], "get" ) == 0 ) {
+d183 6
+a188 2
+        if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_407_DEVTO(resp,mlen) ; return( true ) ; } 
+d193 2
+a194 1
+	    SET_407_DEVTO(resp,mlen) ;
+d198 1
+a198 6
+
+	if( tolower(client_cmd.cmd[1][0]) == 'a' )
+	    AddStatus( 2, UCP "A Filter", resp ) ;
+	else if( tolower(client_cmd.cmd[1][0]) == 'b' )
+	    AddStatus( 3, UCP "B Filter", resp ) ;
+
+d202 1
+a202 1
+    if( client_cmd.cmd[3] && strcasecmp( CP client_cmd.cmd[2], "goto" ) == 0 ) {
+d225 1
+a225 1
+    if( strcasecmp( CP client_cmd.cmd[2], "get" ) == 0 ) {
+d241 1
+a241 1
+    if( client_cmd.cmd[3] && strcasecmp( CP client_cmd.cmd[2], "set" ) == 0 ) {
+d261 6
+@
+
+
+1.6
+log
+@Working Version. SRS630 included.
+@
+text
+@d89 1
+d92 1
+a92 1
+        int nexc = Exchange( UCP "?NM", w_timeo, resp, mlen, r_timeo ) ;
+d96 7
+d127 1
+d130 1
+a130 1
+        int nexc = Exchange( UCP "?MIRROR", w_timeo, resp, mlen, r_timeo ) ;
+d134 7
+d164 1
+d168 1
+a168 1
+        int nexc = Exchange( command, w_timeo, resp, mlen, r_timeo ) ;
+d172 8
+d209 1
+d212 1
+a212 1
+        int nexc = Exchange( UCP "?ANG/MIN", w_timeo, resp, mlen, r_timeo ) ;
+d216 7
+@
+
+
+1.5
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d227 5
+a238 1
+
+@
+
+
+1.4
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@a20 2
+    r_timeo = 15000 ; // 10.0 secs
+    w_timeo = 5000 ; // 5.0 secs
+d23 3
+a25 2
+    cycle = 20000 ; // 20.0 secs
+    DOLOG(9)(LOGDEV, "Leaving monochromator constructor.\n" ) ; 
+d30 1
+a30 1
+    DOLOG(9)(LOGDEV, "%s: Monochromator being started up.\n", name ) ;
+d65 9
+d92 3
+a94 1
+        if( nexc <= 0 ) return( (nexc==0) ) ;
+d99 6
+a104 1
+    if( ! client_cmd.cmd[3] ) return( true ) ;
+a105 4
+    if( strcasecmp( CP client_cmd.cmd[2], "set" ) == 0 ) {
+	snprintf( CP command, sizeof(command), "%s nm", client_cmd.cmd[3] ) ;
+        int nexc = Exchange( command, w_timeo, resp, mlen, -250 ) ;
+        if( nexc < 0 ) return( nexc ) ;
+d109 4
+a112 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+d122 3
+a124 1
+        if( nexc <= 0 ) return( (nexc==0) ) ;
+d129 1
+a129 3
+    if( ! client_cmd.cmd[3] ) return( true ) ;
+
+    if( strcasecmp( CP client_cmd.cmd[2], "set" ) == 0 ) {
+d132 3
+a134 2
+        int nexc = Exchange( command, w_timeo, resp, mlen, -500 ) ;
+        if( nexc < 0 ) return( nexc ) ;
+d138 4
+a141 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+d152 2
+a153 1
+        if( nexc <= 0 ) return( (nexc==0) ) ;
+d163 1
+a163 3
+    if( ! client_cmd.cmd[3] ) return( true ) ;
+
+    if( strcasecmp( CP client_cmd.cmd[2], "set" ) == 0 ) {
+d167 4
+a170 2
+        int nexc = Exchange( command, w_timeo, resp, mlen, -500 ) ;
+        if( nexc < 0 ) return( nexc ) ;
+d174 4
+a177 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+d187 3
+a189 1
+        if( nexc <= 0 ) return( (nexc==0) ) ;
+d194 1
+a194 3
+    if( ! client_cmd.cmd[3] ) return( true ) ;
+
+    if( strcasecmp( CP client_cmd.cmd[2], "set" ) == 0 ) {
+d196 3
+a198 2
+        int nexc = Exchange( command, w_timeo, resp, mlen, -500 ) ;
+        if( nexc < 0 ) return( nexc ) ;
+d202 4
+a205 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+a227 1
+    if( !retval ) return( false ) ;
+d229 4
+a232 6
+    DOLOG(0)( LOGDEV, "Response from %s: <<%s>>\n", name, response ) ;
+
+    StatusLog->L_Command_U( name, mQueue->GetRequest(), response ) ;
+    mQueue->SetResponse( response ) ;
+
+    return( true ) ;
+@
+
+
+1.3
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d25 1
+a25 1
+    cycle = 10000 ; // 20.0 secs
+d40 1
+a40 1
+	mPeriodics[i] = PeriodicQ->Add( getDevice(), temp, cycle ) ;
+d46 1
+a46 1
+int Monochromator::ConnectionStarted( void )
+d48 1
+a48 1
+    DisplayConnection() ;
+d51 2
+a52 2
+	PeriodicQ->Schedule( mPeriodics[i], 
+	    cycle/2 + 2000*i + 2000*getDevice() );
+a54 1
+    return( true ) ;
+d57 1
+a57 1
+void Monochromator::ConnectionEnded( void )
+a61 1
+    Client::ConnectionEnded() ;
+d64 12
+d78 1
+a78 1
+int Monochromator::AddressWavelength( sCmd input, u_char *resp, int mlen ) 
+a80 3
+    u_char response[256] ;
+    int nwrite ;
+    int nread ;
+d82 4
+a85 16
+    FlushStream( fd ) ;
+    *resp = '\0' ;
+
+    if( strcasecmp( CP input.cmd[2], "get" ) == 0 ) {
+	nwrite = WriteStream( UCP "?nm", w_timeo ) ;
+	if( nwrite < 0 ) return( false ) ;
+	nread = ReadStream( response, sizeof(response), r_timeo ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+	strchomp( response ) ;
+	strncpy( CP resp, CP response, mlen ) ;
+	AddStatus( 0, UCP "Wavelength", response ) ;
+d89 1
+a89 1
+    if( ! input.cmd[3] ) return( true ) ;
+d91 4
+a94 11
+    if( strcasecmp( CP input.cmd[2], "set" ) == 0 ) {
+	snprintf( CP command, sizeof(command), "%s nm", input.cmd[3] ) ;
+	nwrite = WriteStream( command, w_timeo ) ;
+	if( nwrite < 0 ) return( false ) ;
+	nread = ReadStream( resp, mlen, 250 ) ; // set value - no response.
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+d98 1
+a98 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", input.cmd[2] ) ;
+d102 1
+a102 1
+int Monochromator::AddressMirror( sCmd input, u_char *resp, int mlen )
+d104 1
+a104 3
+    u_char response[256] ;
+    int nwrite ;
+    int nread ;
+d106 4
+a109 16
+    FlushStream( fd ) ;
+    *resp = '\0' ;
+
+    if( strcasecmp( CP input.cmd[2], "get" ) == 0 ) {
+	nwrite = WriteStream( UCP "?mirror", w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( response, sizeof(response), r_timeo ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+	strchomp( response ) ;
+	strncpy( CP resp, CP response, mlen ) ;
+	AddStatus( 1, UCP "Mirror", response ) ;
+d113 1
+a113 1
+    if( ! input.cmd[3] ) return( true ) ;
+d115 5
+a119 17
+    if( strcasecmp( CP input.cmd[2], "set" ) == 0 ) {
+	int mmode = strtol( CP input.cmd[3], 0, 0 ) ;
+	if( mmode == 0 )
+	    nwrite = WriteStream( UCP "mfront", w_timeo ) ;
+	else if( mmode == 1 )
+	    nwrite = WriteStream( UCP "mside", w_timeo ) ;
+	else
+	    return( true ) ;
+
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( resp, mlen, 500 ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+d123 1
+a123 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", input.cmd[2] ) ;
+d127 1
+a127 1
+int Monochromator::AddressFilter( sCmd input, u_char *resp, int mlen )
+a129 3
+    u_char response[256] ;
+    int nwrite ;
+    int nread ;
+d131 9
+a139 2
+    FlushStream( fd ) ;
+    *resp = '\0' ;
+a140 17
+    if( strcasecmp( CP input.cmd[2], "get" ) == 0 ) {
+	snprintf( CP command, sizeof(command), "?%s", input.cmd[1] ) ;
+	nwrite = WriteStream( command, w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( response, sizeof(response), r_timeo ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+	strchomp( response ) ;
+	strncpy( CP resp, CP response, mlen ) ;
+	if( tolower(input.cmd[1][0]) == 'a' )
+	    AddStatus( 2, UCP "A Filter", response ) ;
+	else if( tolower(input.cmd[1][0]) == 'b' )
+	    AddStatus( 3, UCP "B Filter", response ) ;
+d144 1
+a144 1
+    if( ! input.cmd[3] ) return( true ) ;
+d146 1
+a146 1
+    if( strcasecmp( CP input.cmd[2], "set" ) == 0 ) {
+d148 4
+a151 10
+	    input.cmd[3], input.cmd[1] ) ;
+	nwrite = WriteStream( command, w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( resp, mlen, 500 ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+d155 1
+a155 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", input.cmd[2] ) ;
+d159 1
+a159 1
+int Monochromator::AddressRate( sCmd input, u_char *resp, int mlen )
+a161 6
+    u_char response[256] ;
+    int nwrite ;
+    int nread ;
+
+    FlushStream( fd ) ;
+    *resp = '\0' ;
+d163 4
+a166 12
+    if( strcasecmp( CP input.cmd[2], "get" ) == 0 ) {
+	nwrite = WriteStream( UCP "?ang/min", w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( response, sizeof(response), r_timeo ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+	strchomp( response ) ;
+	strncpy( CP resp, CP response, mlen ) ;
+d170 1
+a170 1
+    if( ! input.cmd[3] ) return( true ) ;
+d172 4
+a175 11
+    if( strcasecmp( CP input.cmd[2], "set" ) == 0 ) {
+	snprintf( CP command, sizeof(command), "%s ang/min", input.cmd[3] ) ;
+	nwrite = WriteStream( command, w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( resp, mlen, 500 ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+d179 1
+a179 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", input.cmd[2] ) ;
+d185 4
+a188 1
+    u_char response[256] = "EMPTY" ;
+d191 10
+a200 24
+    const u_char *request ;
+    mQueue->GetNextTransaction() ;
+
+    request = mQueue->GetRequest() ;
+    DOLOG(0)( LOGDEV, "client request %s: <%s>\n", name, request ) ;
+
+    mQueue->SetResponse( NULL ) ;
+
+    sCmd s_cmd ;
+    int ncmds = TokenizeRequest( request, s_cmd ) ;
+    if( ncmds < 3 ) {
+	return( true ) ; // null or pointless command, but not an error.
+    }
+
+    if( strcasecmp( CP s_cmd.cmd[1], "wlen" ) == 0 ) {
+	retval = AddressWavelength( s_cmd, response, sizeof(response) ) ;
+    } else if( strcasecmp( CP s_cmd.cmd[1], "mirror" ) == 0 ) {
+	retval = AddressMirror( s_cmd, response, sizeof(response) ) ;
+    } else if( strcasecmp( CP s_cmd.cmd[1], "afilter" ) == 0 ) {
+	retval = AddressFilter( s_cmd, response, sizeof(response) ) ;
+    } else if( strcasecmp( CP s_cmd.cmd[1], "bfilter" ) == 0 ) {
+	retval = AddressFilter( s_cmd, response, sizeof(response) ) ;
+    } else if( strcasecmp( CP s_cmd.cmd[1], "rate" ) == 0 ) {
+	retval = AddressRate( s_cmd, response, sizeof(response) ) ;
+d204 1
+a204 1
+    DOLOG(0)( LOGDEV, "client response %s: <<%s>>\n", name, response ) ;
+d206 1
+a206 4
+    StatusLog->Lock() ;
+    StatusLog->Write( name, "CMD", request ) ;
+    StatusLog->Write( name, "RTN", response ) ;
+    StatusLog->Unlock() ;
+@
+
+
+1.2
+log
+@Working.
+@
+text
+@d21 1
+a21 1
+    r_timeo = 1000 ; // 1.0 secs
+d25 1
+d40 1
+a40 1
+	mPeriodics[i] = PeriodicQ->Add( getDevice(), temp, 10000 ) ;
+d51 2
+a52 1
+	PeriodicQ->Schedule( mPeriodics[i], 10000 + 3000*i ) ;
+d80 1
+a80 1
+	if( nwrite <= 0 ) return( false ) ;
+d82 6
+a87 1
+	if( nread <= 0 ) return( false ) ;
+d99 8
+a106 3
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( resp, mlen, r_timeo ) ;
+	if( nread <= 0 ) return( false ) ;
+d127 6
+a132 1
+	if( nread <= 0 ) return( false ) ;
+d151 7
+a157 2
+	nread = ReadStream( resp, mlen, r_timeo ) ;
+	if( nread <= 0 ) return( false ) ;
+d180 6
+a185 1
+	if( nread <= 0 ) return( false ) ;
+d202 7
+a208 2
+	nread = ReadStream( resp, mlen, r_timeo ) ;
+	if( nread <= 0 ) return( false ) ;
+d230 6
+a235 1
+	if( nread <= 0 ) return( false ) ;
+d247 7
+a253 2
+	nread = ReadStream( resp, mlen, r_timeo ) ;
+	if( nread <= 0 ) return( false ) ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d23 2
+a24 1
+    nPeriodics = 4 ;
+d33 8
+a40 4
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), "mono wlen get", 10000 ) ;
+    mPeriodics[1] = PeriodicQ->Add( getDevice(), "mono mirror get", 10000 ) ;
+    mPeriodics[2] = PeriodicQ->Add( getDevice(), "mono afilter get", 10000 ) ;
+    mPeriodics[3] = PeriodicQ->Add( getDevice(), "mono bfilter get", 10000 ) ;
+d66 1
+a66 1
+int Monochromator::ConfrontWavelength( sCmd input, u_char *resp, int mlen ) 
+d83 1
+a83 1
+	AddStatus( 0, UCP "mono wlen", response ) ;
+d102 1
+a102 1
+int Monochromator::ConfrontMirror( sCmd input, u_char *resp, int mlen )
+d118 1
+a118 1
+	AddStatus( 1, UCP "mono mirror", response ) ;
+d143 1
+a143 1
+int Monochromator::ConfrontFilter( sCmd input, u_char *resp, int mlen )
+d162 1
+a162 1
+	    AddStatus( 2, UCP "mono afilter", response ) ;
+d164 1
+a164 1
+	    AddStatus( 3, UCP "mono bfilter", response ) ;
+d184 1
+a184 1
+int Monochromator::ConfrontRate( sCmd input, u_char *resp, int mlen )
+d221 2
+a222 2
+    u_char response[256] ;
+    int retval ;
+d239 1
+a239 1
+	retval = ConfrontWavelength( s_cmd, response, sizeof(response) ) ;
+d241 1
+a241 1
+	retval = ConfrontMirror( s_cmd, response, sizeof(response) ) ;
+d243 1
+a243 1
+	retval = ConfrontFilter( s_cmd, response, sizeof(response) ) ;
+d245 1
+a245 1
+	retval = ConfrontFilter( s_cmd, response, sizeof(response) ) ;
+d247 1
+a247 1
+	retval = ConfrontRate( s_cmd, response, sizeof(response) ) ;
+@

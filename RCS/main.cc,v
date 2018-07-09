@@ -1,0 +1,1984 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.10.1597
+	murphy:5.1.8.1592
+	murphy:5.1.9.1594; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1
+	5.1.9.1593
+	5.1.10.1597;
+next	1.13;
+
+1.13
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.12;
+
+1.12
+date	2004.07.22.18.34.23;	author murphy;	state Exp;
+branches;
+next	1.11;
+
+1.11
+date	2004.07.13.13.10.21;	author murphy;	state Exp;
+branches;
+next	1.10;
+
+1.10
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.9;
+
+1.9
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.11.02.35.12;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.05.10.14.00.29;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.11.54.25;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	5.1.8.1564;
+
+5.1.8.1564
+date	2014.11.11.13.27.04;	author murphy;	state Exp;
+branches;
+next	5.1.8.1565;
+
+5.1.8.1565
+date	2014.11.11.13.27.36;	author murphy;	state Exp;
+branches;
+next	5.1.8.1590;
+
+5.1.8.1590
+date	2014.11.11.15.18.21;	author murphy;	state Exp;
+branches;
+next	5.1.8.1591;
+
+5.1.8.1591
+date	2015.01.07.19.13.01;	author murphy;	state Exp;
+branches;
+next	5.1.8.1592;
+
+5.1.8.1592
+date	2015.01.07.19.13.57;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.9.1593
+date	2015.01.07.19.14.24;	author murphy;	state Exp;
+branches;
+next	5.1.9.1594;
+
+5.1.9.1594
+date	2015.07.28.16.01.33;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.10.1597
+date	2015.07.28.16.07.19;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Handles reading of the config file and aliases file, and then
+creates the instances of each transaction object. May also be
+where the basic queuing of periodic queries are developed.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <stdlib.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <stdio.h>
+#include <strings.h>
+#include <time.h>
+#include <unistd.h>
+
+#define FILE_H_NEED (1)
+
+#include "global.h"
+#include "main.h"
+#include "stream.h"
+
+
+#include "client.h"
+#include "ke617.h"
+#include "ke6514.h"
+#include "filterwheel.h"
+#include "httpserver.h"
+#include "xmlserver.h"
+#include "keyboard.h"
+#include "logging.h"
+#include "monochromator.h"
+#include "mm4005.h"
+#include "klingermc4.h"
+#include "unidex11.h"
+#include "unidex511.h"
+#include "pm2813.h"
+#include "prm100.h"
+#include "periodic.h"
+#include "server.h"
+#include "sr630.h"
+#include "labsphere.h"
+#include "udts370.h"
+#include "udts470.h"
+#include "tempmon.h"
+#include "thermalserver.h"
+#include "newportTH.h"
+
+static const int MajorTick = 50000 ;
+static int vTopDev = -1 ;
+static int EnableKeyboard = true ;
+static int nKeyboard = -1 ;
+static int log_not_blocking = true ;
+static const char *sConfig = 0 ;
+static int bConsoleStatusOn = true ;
+static int bLogStatusOn = true ;
+static int bLogLogOn = true ;
+
+static int ArgC = 0 ;
+static char **ArgV = NULL ;
+static char **EnvP = NULL ;
+
+int TopDev( void )
+{
+    return( vTopDev ) ;
+}
+
+static volatile int CheckPeriodics = 0 ;
+static volatile int Ticks = 0 ;
+static volatile int DoDebug = 0 ;
+static volatile int bTimerRunning ;
+static pthread_t p_Timer_thread ;
+static sem_t sem_periodic ;
+
+
+void * RunTimer( void *v_w_device )
+{
+    struct timespec ticker ;
+    struct timespec request ;
+    struct timespec remainder ;
+
+    ticker.tv_sec = MajorTick / 1000000 ;
+    ticker.tv_nsec = 1000 * (MajorTick % 1000000) ;
+
+    request = ticker ;
+    bTimerRunning = 1 ;
+
+    while( 1 ) {
+	int iStatus = nanosleep( &request, &remainder ) ;
+	if( iStatus != 0 ) {
+	    request = remainder ;
+	    continue ;
+	}
+	if( bTimerRunning ) {
+	    // fprintf( stderr, "Q" ) ;
+	    CheckPeriodics++ ;
+	    Ticks++ ;
+	}
+	request = ticker ;
+	sem_wait( &sem_periodic ) ;
+    }
+
+    return( 0 ) ;
+}
+
+void SetupTimer( void )
+{
+    pthread_attr_t t_attribute ;
+
+    DODBG(9)(DBGDEV, "About to create timer thread.\n" ) ;
+
+    pthread_attr_init( &t_attribute ) ;
+    pthread_create( &p_Timer_thread, &t_attribute, RunTimer, (void*)NULL ) ;
+    DODBG(9)(DBGDEV, "Created timer thread.\n" ) ;
+}
+
+void TimerHold( void )
+{
+    bTimerRunning = 0 ;
+}
+void TimerRelease( void )
+{
+    bTimerRunning = 1 ;
+}
+
+void RequestDebug( int signal_was )
+{
+    if( signal_was == SIGUSR1 ) {
+	DbgLevel++ ;
+	fprintf( stderr, "Debug level = %d\n", DbgLevel ) ;
+    }
+    if( signal_was == SIGUSR2 ) {
+	if( --DbgLevel < 0 ) DbgLevel = 0 ;
+	fprintf( stderr, "Debug level = %d\n", DbgLevel ) ;
+    }
+    if( signal_was == 0 ) {
+	DoDebug = 1 ;
+    }
+}
+
+void BrokenPipe( int dummy )
+{
+    DODBG(10)( DBGDEV, "Broken pipe ignored.\r\n" ) ;
+}
+
+void DoRestart( int dummy )
+{
+    DODBG(0)(DBGDEV, "Restart.\r\n" ) ;
+    fprintf( stderr, "Restart.\r\n" ) ;
+    bDoRestart = true ;
+    bRunning = false ;
+}
+
+void CloseOutAll( void )
+{
+    if( OCF_Status )
+	OCF_Status->StopOps() ;
+
+    pthread_cancel( p_Timer_thread ) ;
+
+    for( int i = 0 ; i <= TopDev() ; i++ ) {
+	if( ! streams[i]->IsEnabled() ) continue ;
+	DODBG(2)( DBGDEV, "Stopping device: <%s>.\r\n", streams[i]->getName() ) ;
+	streams[i]->StopOps() ;
+	DODBG(9)( DBGDEV, "Device <%s> stopped.\r\n", streams[i]->getName() );
+    }
+}
+
+void NiceExit( int dummy )
+{
+    DODBG(0)(DBGDEV, "Exiting.\r\n" ) ;
+    fprintf( stderr, "Exiting.\r\n" ) ;
+    bDoRestart = false ;
+    bRunning = false ;
+}
+
+void PollableEvent( int dummy )
+{
+    fprintf( stderr, "Pollable event detected.\r\n" ) ;
+    abort() ;
+    fprintf( stderr, "Pollable event detected and ignored.\r\n" ) ;
+}
+
+void HostBasedDefaults( void )
+{
+    if( ! this_host ) return ;
+
+    if( strcasecmp( CP this_host, "ocfmaster" ) == 0 ) {
+	if( ! test_target_0 ) test_target_0 = UCP "sri-ocf-1.jhuapl.edu" ;
+    } else if( strcasecmp( CP this_host, "sri-ocf-1" ) == 0 ) {
+	if( ! test_target_0 ) test_target_0 = UCP "localhost" ;
+    }
+}
+
+static void CreatePid( void )
+{
+    FILE *out = fopen( ".pid", "w" ) ;
+    if( out ) {
+	fprintf( out, "%d\n", getpid() ) ;
+	fclose( out ) ;
+	chmod( ".pid", 0666 ) ;
+    } else {
+	perror( ".pid" ) ;
+    }
+}
+
+void DisplayKeyboardCommands( void )
+{
+    DODBG(0)( DBGDEV, "\007\r\n" ) ;
+    DODBG(0)( DBGDEV, "To quit, type 'q'.\r\n" ) ;
+    DODBG(0)( DBGDEV, "Type Control-T to display overall status.\r\n" ) ;
+    DODBG(0)( DBGDEV, "Type Control-R to retry all inoperative connections.\r\n" ) ;
+    DODBG(0)( DBGDEV, "Type Control-D to increase the debug level.\r\n" ) ;
+    DODBG(0)( DBGDEV, "Type Control-E to decrease the debug level.\r\n" ) ;
+    DODBG(0)( DBGDEV, "Type Control-] to suspend keyboard control.\r\n" ) ;
+    DODBG(0)( DBGDEV, "\r\n" ) ;
+}
+
+static time_t start_time ;
+
+int main( int argc, char **argv, char **envp )
+{
+    void PrintVersion( void ) ;
+
+    time( &StartTicks ) ;
+
+    signal( SIGHUP, DoRestart ) ;
+    signal( SIGTERM, NiceExit ) ;
+    // signal( SIGALRM, Triggered ) ;
+    signal( SIGPIPE, BrokenPipe ) ;
+    signal( SIGPOLL, PollableEvent ) ;
+    signal( SIGUSR1, RequestDebug ) ;
+    signal( SIGUSR2, RequestDebug ) ;
+
+    ArgC = argc ;
+    ArgV = argv ;
+    EnvP = envp ;
+
+    SetNameInUT() ;
+    CreatePid() ;
+
+    // MOVED THIS TO AVOID COMMANDLINE BEING OVERRIDDEN 2011-04-02
+    SetThisHost() ;
+    HostBasedDefaults() ;
+
+    foreign( argc-1, argv+1 ) ;
+
+    if( DbgFile ) {
+	DBGDEV = fopen( DbgFile, "w" ) ;
+	if( ! DBGDEV ) perror( DbgFile ) ;
+    }
+    if( ! DBGDEV ) DBGDEV = stderr ;
+
+    setvbuf( DBGDEV, 0, _IONBF, 0 ) ;
+
+    if( log_not_blocking ) { // add some debug.
+	int fd, file_status ;
+	fd = fileno( DBGDEV ) ;
+	if( fd < 0 ) perror("blocking.fileno") ;
+	file_status = fcntl( fd, F_GETFL ) ;
+	if( file_status < 0 ) perror("blocking.fcntl.get") ;
+	file_status |= O_NONBLOCK ;
+	int status = fcntl( fd, F_SETFL, file_status ) ;
+	if( status ) perror("blocking.fcntl.set") ;
+    }
+
+    PrintVersion() ;
+
+    if( EnableKeyboard ) {
+	// Has input been redirected or have we been forked?
+	if( ! isatty(0) ) EnableKeyboard = false ;
+	if( tcgetpgrp(0) != getpgid(0) ) EnableKeyboard = false ;
+    }
+
+    DODBG(0)(DBGDEV, "Keyboard input is %s\n",
+	EnableKeyboard ? "Enabled" : "Disabled" ) ;
+
+    SetupTimer() ;
+
+
+    if( ! log_prefix ) log_prefix = UCP "Logs/Cal" ;
+    if( ! bLogLogOn ) log_prefix = NULL ;
+
+    time( &start_time ) ;
+    StatusLog = new Logging( log_prefix ) ;
+    if( ! StatusLog ) {
+	DODBG(0)(DBGDEV, "Could not start logging.\r\n" ) ;
+	exit(0) ;
+    }
+    StatusLog->L_Write_U( "main", "INFO", "HYDRA Starting." ) ;
+
+    if( ! status_dir ) status_dir = UCP "State" ;
+    if( ! bLogStatusOn ) status_dir = NULL ;
+
+    OCF_Status = new OCFStatus( status_dir ) ;
+    OCF_Status->SetInterval( 1 ) ;
+    OCF_Status->StartThread() ;
+
+    PeriodicQ = new Periodic() ;
+
+    vTopDev = -1 ;
+    if( EnableKeyboard ) {
+	nKeyboard = 0 ;
+	streams[nKeyboard] = new Keyboard ;
+	streams[nKeyboard]->setName ( "keyboard" ) ;
+	streams[nKeyboard]->setDevice( nKeyboard ) ;
+	vTopDev = 0 ;
+    }
+
+    if( ! sConfig ) {
+	DODBG(0)(DBGDEV, "No configuration file specified. Stopping.\r\n" ) ;
+	exit(0) ;
+    }
+
+    DODBG(0)( DBGDEV, "Opening config file: %s\n", sConfig ) ;
+    FILE *FINIT = fopen( sConfig, "r" ) ;
+    if( FINIT == NULL ) {
+	DODBG(0)( DBGDEV, "Could not open config file: %s\n", sConfig ) ;
+	DODBG(0)( DBGDEV, "Cannot recover.\n" ) ;
+	exit(0) ;
+    }
+
+    for( int i = 0 ; i < 16384 ; i++ ) {
+        int status = InitializePorts( FINIT, i ) ;
+        if( status ) break ;
+    }
+    fclose( FINIT ) ;
+
+    if( TopDev() < ( EnableKeyboard ? 1 : 0 ) ) {
+        DODBG(0)( DBGDEV, "No devices found.\r\n" ) ;
+        DODBG(0)( DBGDEV, "Cannot proceed.\r\n" ) ;
+        exit(0) ;
+    }
+
+    if( http_port ) {
+	vTopDev++ ;
+	streams[vTopDev] = HTTP = new HTTPServer ;
+	streams[vTopDev]->setName ( "HTTP Server" ) ;
+	streams[vTopDev]->setDevice( vTopDev ) ;
+    }
+
+    if( xml_port ) {
+	vTopDev++ ;
+	streams[vTopDev] = XML = new XMLServer ;
+	streams[vTopDev]->setName ( "XML Server" ) ;
+	streams[vTopDev]->setDevice( vTopDev ) ;
+    }
+
+    DODBG(4)( DBGDEV, "Starting up operations.\r\n" ) ;
+    DODBG(0)( DBGDEV, "Major thread activity begins now.\n" ) ;
+    for( int i = 0 ; i <= TopDev() ; i++ ) {
+	if( ! streams[i]->IsEnabled() ) continue ;
+	DODBG(0)( DBGDEV, "Starting device: <%s>.\r\n", streams[i]->getName() ) ;
+	streams[i]->StartOps() ;
+	DODBG(0)( DBGDEV, "Device <%s> started.\r\n", streams[i]->getName() );
+    }
+    DODBG(4)( DBGDEV, "Startup completed.\n" ) ;
+
+    if( EnableKeyboard ) {
+	DisplayKeyboardCommands() ;
+    }
+
+    DODBG(4)( DBGDEV, "Starting timer and central handler.\n" ) ;
+
+    Loop() ;
+
+    if( HTTP )
+	delete HTTP ;
+
+    if( XML )
+	delete XML ;
+
+    if( DBGDEV )
+	fclose( DBGDEV ) ;
+}
+
+void Loop( void )
+{
+    fd_set inpmask ;
+    int nfds, selectmax = 0 ;
+    struct timeval timeout ;
+    int kbfd = -1 ;
+    Keyboard *pKeyboard = 0;
+
+    selectmax = 0 ;
+    if( EnableKeyboard ) {
+	kbfd = streams[nKeyboard]->getFd() ;
+	selectmax = 1 + kbfd ;
+	pKeyboard = dynamic_cast<Keyboard*>(streams[nKeyboard]) ;
+    }
+
+    while( bRunning ) {
+	if( CheckPeriodics ) RunPeriodics() ;
+
+	FD_ZERO( &inpmask ) ;
+	if( kbfd >= 0 )
+            FD_SET( kbfd, &inpmask ) ;
+
+	timeout.tv_sec = 0 ;
+	timeout.tv_usec = 10000 ;
+
+	nfds = select( selectmax, &inpmask, NULL, NULL, &timeout ) ;
+	if( nfds == 0 ) continue ;
+
+	if( nfds < 0 ) {
+	    if( errno == 0 || errno == EINTR ) {
+		continue ;
+	    } else {
+		perror( "select" ) ;
+		DODBG(0)( DBGDEV, "Fatal error in Loop/select. Sorry!\n" ) ;
+		exit(1) ;
+	    }
+	}
+
+	if( (kbfd >= 0) && FD_ISSET( kbfd, &inpmask ) ) {
+	    pKeyboard->HandleRx() ;
+	}
+    }
+
+    if( kbfd >= 0 ) {
+	pKeyboard->ResetKeyboard() ;
+    }
+
+    CloseOutAll() ;
+
+    if( bDoRestart ) {
+	int i ;
+	sleep( 5 ) ;
+	for( i = 0 ; i < ArgC ; i++ ) {
+	    fprintf( stderr, "%3d <%s>\n", i, ArgV[i] ) ;
+	}
+	fprintf( stderr, "Restarting now ...\n" ) ;
+	sleep( 1 ) ;
+	// execve( ArgV[0], ArgV, EnvP ) ;
+	execvp( ArgV[0], ArgV ) ;
+    }
+
+}
+
+void RunPeriodics( void )
+{
+    PeriodicQ->CheckAndQueue() ;
+    UpdateStatus() ;
+    CheckPeriodics = 0 ;
+    if( DoDebug && bConsoleStatusOn ) {
+	DisplayConsoleStatus(stderr) ;
+	DoDebug = 0 ;
+    }
+    sem_post( &sem_periodic ) ;
+}
+
+void SetOptions( u_char *p_line )
+{
+    u_char l_name[2048] = "" ;
+    u_char l_setup[2048] = "" ;
+    int nscan; 
+    bool flag_start = false, flag_enable = false ;
+
+    nscan = sscanf( CP p_line, "%*s <%[^>]> <%[^>]>", l_name, l_setup ) ;
+    if( nscan != 2 ) {
+	DODBG(0)( DBGDEV, "1 Option not understood: %s\n", p_line ) ;
+	exit(0) ;
+    }
+
+    if( strcasecmp( CP l_setup, "enable" ) == 0 ) {
+	flag_start = true ; flag_enable = true ;
+    } else if( strcasecmp( CP l_setup, "disable" ) == 0 ) {
+	flag_start = true ; flag_enable = false ;
+    } 
+
+    // Brute force lookup, since this will be a small table
+    // and is only looked at a few times during startup!
+    for( int i = 0 ; i <= TopDev() ; i++ ) {
+	const u_char *p = streams[i]->getName() ;
+	if( strcmp( CP p, CP l_name ) != 0 ) continue ;
+	if( flag_start ) {
+	    streams[i]->Enable( flag_enable ) ;
+	    return ;
+	}
+	int status = streams[i]->SetOptions( l_setup ) ;
+	if( ! status ) {
+	    DODBG(0)( DBGDEV, "2 Option not understood: %s\n", p_line ) ;
+	    exit(0) ;
+	}
+	return ;
+    }
+    DODBG(0)( DBGDEV, "3 Option not understood: %s\n", p_line ) ;
+    exit(0) ;
+}
+
+int InitializePorts( FILE *inp, int lineno )
+{
+    u_char line[4096] ;
+    int lines = 0, pnt = 0 ;
+    u_char *ucstatus ;
+    u_char l_name[2048] = "" ;
+    u_char l_type[2048] = "" ;
+    int wport, nscan ;
+    Stream *t_stream ;
+
+    if( inp == NULL ) return( true) ;
+
+    while( 1 ) {
+	line[pnt] = '\0' ;
+	ucstatus = UCP fgets( CP line+pnt, 2048, inp ) ;
+	int i_pnt = strchomp( line ) ;
+	if( *line == '#' || *line == '\0' ) {
+	    if( ! ucstatus ) return( true ) ;
+	    continue ;
+	}
+
+	pnt = i_pnt ;
+	lines++ ;
+	if( line[pnt] != '\\' ) break ;
+	if( pnt > 2048 ) {
+	    DODBG(0)( DBGDEV, "Line too long: <%s>\n", line ) ;
+	    exit(0) ;
+	}
+    }
+    nscan = sscanf( CP line, "%s ", l_name ) ;
+    if( nscan != 1 ) {
+	DODBG(0)( DBGDEV, "Line not understood: <%s>\n", line ) ;
+	exit(0) ;
+    }
+
+    if( strcasecmp(CP l_name, "alias")  == 0 ) {
+	FindAndInsertAlias( line ) ;
+	return( false ) ;
+    } else if( strcasecmp(CP l_name, "options")  == 0 ) {
+	SetOptions( line ) ;
+	return( false ) ;
+    } else if( strcasecmp(CP l_name, "epoch") == 0 ) {
+	int nscan = sscanf( CP line, "%*s %lf", &EpochMET ) ;
+	if( nscan != 1 ) {
+	    DODBG(0)( DBGDEV, "Line not understood: <%s>\n", line ) ;
+	    exit(0) ;
+	}
+
+	time_t t_met = (time_t) EpochMET ;
+	struct tm gm_met ;
+	gmtime_r( &t_met, &gm_met ) ;
+	DODBG(0)( DBGDEV, "Epoch for MET = %f %04d-%02d-%02dT%02d:%02d:%02dZ\n", 
+	    EpochMET,
+	    gm_met.tm_year+1900,
+	    gm_met.tm_mon+1,
+	    gm_met.tm_mday,
+	    gm_met.tm_hour,
+	    gm_met.tm_min,
+	    gm_met.tm_sec ) ;
+
+	return( false ) ;
+    } else if( strcasecmp(CP l_name,"exit") == 0 ) {
+	return( true ) ;
+    }
+
+    nscan = sscanf( CP line, "<%[^>]> %s", l_name, l_type ) ;
+
+    if( nscan != 2 ) {
+	DODBG(0)( DBGDEV, "Line not understood: <%s>\n", line ) ;
+	return( true ) ;
+    }
+
+    wport = vTopDev + 1 ;
+    DODBG(9)( DBGDEV, "%4d %2d Name: <%s>\n", lineno, wport, l_name ) ;
+    DODBG(9)( DBGDEV, "%4d %2d Type: <%s>\n", lineno, wport, l_type ) ;
+
+    if( strcasecmp(CP l_type,"network-server") == 0 ) {
+	streams[wport] = t_stream = new Server() ;
+    } else if( strcasecmp(CP l_type,"network-client") == 0 ) {
+	streams[wport] = t_stream = new Client() ;
+    } else if( strcasecmp(CP l_type,"network-client-tempmon") == 0 ) {
+	streams[wport] = t_stream = new TempMon() ;
+    } else if( strcasecmp(CP l_type,"network-client-monochromator") == 0 ) {
+	streams[wport] = t_stream = new Monochromator() ;
+    } else if( strcasecmp(CP l_type,"network-client-filterwheel") == 0 ) {
+	streams[wport] = t_stream = new FilterWheel() ;
+    } else if( strcasecmp(CP l_type,"network-client-sr630") == 0 ) {
+	streams[wport] = t_stream = new SR630() ;
+    } else if( strcasecmp(CP l_type,"network-client-mm4005") == 0 ) {
+	streams[wport] = t_stream = new MM4005() ;
+    } else if( strcasecmp(CP l_type,"network-client-klinger") == 0 ) {
+	streams[wport] = t_stream = new KlingerMC4() ;
+    } else if( strcasecmp(CP l_type,"network-client-unidex11") == 0 ) {
+	streams[wport] = t_stream = new Unidex11() ;
+    } else if( strcasecmp(CP l_type,"network-client-unidex511") == 0 ) {
+	streams[wport] = t_stream = new Unidex511() ;
+    } else if( strcasecmp(CP l_type,"network-client-ke617") == 0 ) {
+	streams[wport] = t_stream = new KE617() ;
+    } else if( strcasecmp(CP l_type,"network-client-ke6514") == 0 ) {
+	streams[wport] = t_stream = new KE6514() ;
+    } else if( strcasecmp(CP l_type,"network-client-pm2813") == 0 ) {
+	streams[wport] = t_stream = new PM2813() ;
+    } else if( strcasecmp(CP l_type,"network-client-prm100") == 0 ) {
+	streams[wport] = t_stream = new PRM100() ;
+    } else if( strcasecmp(CP l_type,"network-client-labsphere") == 0 ) {
+	streams[wport] = t_stream = new Labsphere() ;
+    } else if( strcasecmp(CP l_type,"network-client-udts370") == 0 ) {
+	streams[wport] = t_stream = new UDTS370() ;
+    } else if( strcasecmp(CP l_type,"network-client-udts470") == 0 ) {
+	streams[wport] = t_stream = new UDTS470() ;
+    } else if( strcasecmp(CP l_type,"network-server-thermal") == 0 ) {
+	streams[wport] = t_stream = new ThermalServer() ;
+    } else if( strcasecmp(CP l_type,"network-client-newportTH") == 0 ) {
+	streams[wport] = t_stream = new NewportTH() ;
+    } else {
+	DODBG(0)( DBGDEV, "\007 Unknown device: %s of type %s.\n", l_name, l_type ) ;
+	exit(0) ;
+    }
+
+    t_stream->setName ( l_name ) ;
+    t_stream->setDevice( wport ) ;
+    vTopDev = wport ;
+
+    InsertAlias( l_name, l_name ) ;
+
+    return( false ) ;
+}
+
+#include <search.h>
+
+void FindAndInsertAlias( u_char *p_line )
+{
+    u_char l_name[2048] = "" ;
+    u_char l_alias[2048] = "" ;
+
+    int nscan; 
+    nscan = sscanf( CP p_line, "%*s <%[^>]> <%[^>]>", l_name, l_alias ) ;
+    if( nscan != 2 ) {
+	DODBG(0)( DBGDEV, "Alias not understood: %s\n", p_line ) ;
+	return ;
+    }
+    if( ! InsertAlias( l_name, l_alias ) ) {
+	DODBG(0)( DBGDEV, "Alias not understood: %s\n", p_line ) ;
+	exit(0) ;
+    }
+}
+
+int InsertAlias( u_char *p_name, u_char *p_alias )
+{
+    static int first_time = true ;
+
+    if( first_time ) {
+	first_time = false ;
+	if( ! hcreate( 1024 ) ) {
+	    perror( "hash create" ) ;
+	    return( false ) ;
+	}
+    }
+    
+    // Brute force lookup, since this will be a small table
+    // and is only looked at a few times during startup!
+    for( int i = 0 ; i <= TopDev() ; i++ ) {
+	const u_char *p = streams[i]->getName() ;
+	if( strcmp( CP p, CP p_name ) != 0 ) continue ;
+
+	// Convert alias to lower case.
+	u_char *pAlias = UCP strdup( CP p_alias ) ;
+
+	for( u_char *q = pAlias ; *q != '\0' ; q++ ) {
+	    *q = tolower( *q ) ;
+	}
+	do {
+	    char *p = strchr( CP pAlias, ' ' ) ;
+	    if( p ) *p = '_' ;
+	    else break ;
+	} while(1) ;
+
+	ENTRY newent, *ent ;
+	newent.key = CP pAlias ;
+	newent.data = (void*) i ;
+	ent = hsearch( newent, FIND ) ;
+	if( ent && ( i != (long)ent->data ) ) {
+	    DODBG(0)( DBGDEV, "%s(dev=%ld) and %s(dev=%d) ambiguous.\n", ent->key, (long)ent->data, p_alias, i ) ;
+	    exit(0) ;
+	}
+
+	streams[i]->setAlias( pAlias ) ;
+
+	ent = hsearch( newent, ENTER ) ;
+	if( ! ent ) {
+	    perror( "hash setup" ) ;
+	    return(false) ;
+	}
+	return(true) ;
+    }
+    return( false ) ;
+}
+
+void foreign( int argc, char **argv )
+{
+    char *ap ;
+
+    while( argc > 0 ) {
+        ap = *argv++ ; argc-- ;
+
+        if( strcmp( ap, "--target" ) == 0 ) {
+	    test_target_0 = UCP *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--config" ) == 0 ) {
+	    sConfig = *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--debug-dir" ) == 0 ) {
+	    DbgFile = (char*)malloc( 1024 ) ;
+	    snprintf( DbgFile, 1024, "%s/%s.log", *argv, NameInUT ) ;
+	    argv++ ; argc-- ;
+        } else if( strcmp( ap, "--no-console-status" ) == 0 ) {
+	    bConsoleStatusOn = false ;
+        } else if( strcmp( ap, "--no-status" ) == 0 ) {
+	    bLogStatusOn = false ;
+        } else if( strcmp( ap, "--no-logging" ) == 0 ) {
+	    bLogLogOn = false ;
+        } else if( strcmp( ap, "--debug" ) == 0 ) {
+	    DbgFile = *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--debug-level" ) == 0 ) {
+	    DbgLevel = strtol( *argv, 0, 0 ) ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--log-prefix" ) == 0 ) {
+	    log_prefix = UCP *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--log-suffix" ) == 0 ) {
+	    log_suffix = UCP *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--status-dir" ) == 0 ) {
+	    status_dir = UCP *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--status-file" ) == 0 ) {
+	    status_file = UCP *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--http" ) == 0 ) {
+	    http_port = UCP *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--xml" ) == 0 ) {
+	    xml_port = UCP *argv ; argv++ ; argc-- ;
+	} else {
+	    fprintf( stderr, "Unrecognized parameter: %s\n", ap ) ;
+	    exit(0) ;
+	}
+    }
+}
+
+void UpdateStatus( void )
+{
+    static time_t willbe = 0 ;
+    static time_t dbglog = 0 ;
+    time_t now ;
+    int i, j = 0 ;
+    int maxcols ;
+
+    time(&now) ;
+    if( now < willbe ) return ;
+    willbe = now + 4 ;
+    status_time = now ;
+
+    for( i = 0 ; i <= TopDev() ; i++ ) {
+	if( streams[i]->getType() == Stream::TypeNone ) continue ;
+
+	strncpy( gStatus[j][0], CP streams[i]->getName(), MAXDEVSTR ) ;
+
+	if( char *c_alias = CP streams[i]->getAlias() ) 
+	    strncpy( gStatus[j][2], c_alias, MAXDEVSTR ) ;
+	else 
+	    strncpy( gStatus[j][2], "", MAXDEVSTR ) ;
+
+	for( int k = 3 ; k < MAXITEM ; k++)
+	    strncpy( gStatus[j][k], "", MAXDEVSTR ) ;
+
+	if( streams[i]->IsEnabled() ) {
+	    strncpy( gStatus[j][1], "On", MAXDEVSTR ) ;
+	    streams[i]->PleaseReport( j, 3 ) ;
+	} else {
+	    strncpy( gStatus[j][1], "Off", MAXDEVSTR ) ;
+	}
+	j++ ;
+    }
+    nStatus = j ;
+
+    maxcols = 0 ;
+    for( int k = 0 ; k < MAXITEM ; k++ ) {
+	gMaxLen[k] = 0 ;
+	for( j = 0 ; j < nStatus ; j++ ) {
+	    int l_str = strlen( gStatus[j][k] ) ;
+	    if( gMaxLen[k] < l_str ) gMaxLen[k] = l_str ;
+	}
+	if( gMaxLen[k] > 0 ) maxcols = k+1 ;
+    }
+    if( HTTP )
+	HTTP->BuildStatus( maxcols ) ;
+
+    if( now > dbglog && bConsoleStatusOn ) {
+	DisplayConsoleStatus( DBGDEV ) ;
+	dbglog = now + 60 ;
+    }
+}
+
+void DisplayConsoleStatus( FILE *Out )
+{
+    int j, k, col, p_end ;
+    char temp[512] ;
+
+    struct tm *ut = gmtime( &status_time ) ;
+
+    fprintf( Out, "Status at %04d-%02d-%02d %02d:%02d:%02d UT\r\n",
+        ut->tm_year+1900,
+        ut->tm_mon+1,
+        ut->tm_mday,
+        ut->tm_hour,
+        ut->tm_min,
+        ut->tm_sec ) ;
+
+    for( j = 0 ; j < nStatus ; j++ ) {
+	col = 0 ;
+	memset( temp, ' ', 512 ) ;
+	p_end = 0 ;
+
+	for( k = 0 ; k < MAXITEM ; k++ ) {
+	    if( k == 2 ) continue ;
+	    if( gMaxLen[k] == 0 ) continue ;
+	    int l_item = strlen( gStatus[j][k] ) ;
+
+	    strcpy( temp+col, gStatus[j][k] ) ;
+	    p_end = col + l_item ;
+	    temp[p_end] = ' ' ;
+
+	    col += gMaxLen[k] ;
+	    temp[col++] = '|' ;
+	    temp[col] = '\0' ;
+	    // col += gMaxLen[k] + 1 ;
+	}
+
+	fprintf( Out, "%s\n", temp ) ;
+    }
+    fprintf( Out, "\n" ) ;
+}
+
+void ResetAllRetries( void )
+{
+    int wdev ;
+    for( wdev = 0 ; wdev <= TopDev() ; wdev++ ) {
+	if( ! streams[wdev]->IsAClient() ) continue ;
+	Client *t = dynamic_cast<Client*>(streams[wdev]) ;
+	t->ResetRetry() ;
+    }
+}
+@
+
+
+5.1.10.1597
+log
+@5.1.10.1597
+@
+text
+@a43 2
+#include "sbi4000.h"
+#include "newmark.h"
+d424 1
+a424 4
+	void CloseFrom( int fdmin ) ;
+
+	sleep( 2 ) ;
+	CloseFrom( 3 ) ;
+a432 1
+}
+a433 6
+void CloseFrom( int fdmin )
+{
+    int i ;
+    int fdmax = getdtablesize() ;
+    for( i = fdmin ; i < fdmax ; i++ ) 
+        (void)close( i ) ;
+a600 4
+    } else if( strcasecmp(CP l_type,"network-client-sbi4000") == 0 ) {
+	streams[wport] = t_stream = new SBI4000() ;
+    } else if( strcasecmp(CP l_type,"network-client-newmark") == 0 ) {
+	streams[wport] = t_stream = new Newmark() ;
+@
+
+
+5.1.9.1593
+log
+@5.1.9.1593
+@
+text
+@a43 1
+#include "sbi4000.h"
+d424 1
+a424 4
+	void CloseFrom( int fdmin ) ;
+
+	sleep( 2 ) ;
+	CloseFrom( 3 ) ;
+a432 1
+}
+a433 6
+void CloseFrom( int fdmin )
+{
+    int i ;
+    int fdmax = getdtablesize() ;
+    for( i = fdmin ; i < fdmax ; i++ ) 
+        (void)close( i ) ;
+a600 2
+    } else if( strcasecmp(CP l_type,"network-client-sbi4000") == 0 ) {
+	streams[wport] = t_stream = new SBI4000() ;
+@
+
+
+5.1.9.1594
+log
+@5.1.9.1594
+@
+text
+@a44 1
+#include "newmark.h"
+a613 2
+    } else if( strcasecmp(CP l_type,"network-client-newmark") == 0 ) {
+	streams[wport] = t_stream = new Newmark() ;
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+5.1.8.1564
+log
+@5.1.8.1564
+@
+text
+@a600 2
+    } else if( strcasecmp(CP l_type,"network-client-sbi4000") == 0 ) {
+	streams[wport] = t_stream = new SBI4000() ;
+@
+
+
+5.1.8.1565
+log
+@5.1.8.1565
+@
+text
+@a43 1
+#include "sbi4000.h"
+@
+
+
+5.1.8.1590
+log
+@5.1.8.1590
+@
+text
+@d425 1
+a425 1
+	sleep( 2 ) ;
+@
+
+
+5.1.8.1591
+log
+@5.1.8.1591
+@
+text
+@a425 1
+	CloseFrom( 3 ) ;
+a433 1
+}
+a434 6
+void CloseFrom( int fdmin )
+{
+    int i ;
+    int fdmax = getdtablesize() ;
+    for( i = fdmin ; i < fdmax ; i++ ) 
+        (void)close( i ) ;
+@
+
+
+5.1.8.1592
+log
+@5.1.8.1592
+@
+text
+@a424 2
+	void CloseFrom( int fdmin ) ;
+
+@
+
+
+1.13
+log
+@Working system. Backing up.
+@
+text
+@d5 1
+d25 1
+d32 3
+d39 2
+d43 1
+d50 8
+a57 1
+static char *sConfig = 0 ;
+d64 9
+a72 1
+void SetTimer( void )
+d74 6
+a79 2
+    struct itimerval timeset ;
+    struct timeval ticks ;
+d81 2
+a82 2
+    ticks.tv_sec = MajorTick / 1000000 ;
+    ticks.tv_usec = MajorTick % 1000000 ;
+d84 14
+a97 1
+    timeset.it_interval = timeset.it_value = ticks ;
+d99 1
+a99 1
+    setitimer( ITIMER_REAL, &timeset, NULL ) ;
+d102 5
+a106 3
+static volatile int CheckPeriodics = 0 ;
+static volatile int Ticks = 0 ;
+static volatile int DoDebug = 0 ;
+d108 3
+a110 4
+void Triggered( int dummy )
+{
+    CheckPeriodics++ ;
+    Ticks++ ;
+d112 1
+d115 1
+a115 1
+    signal( SIGALRM, SIG_IGN ) ;
+d119 1
+a119 1
+    signal( SIGALRM, Triggered ) ;
+d121 1
+d142 23
+d169 2
+a170 1
+    running = false ;
+d184 4
+a187 23
+    if( strcasecmp( CP this_host, "gamma" ) == 0 ) {
+	if( ! test_target_0 ) test_target_0 = UCP "schooners-2.jhuapl.edu" ;
+	if( ! sConfig ) sConfig = "config" ;
+	DbgLevel = 8 ;
+	// if( ! log_suffix ) log_suffix = UCP ".log" ;
+	// if( ! status_dir ) status_dir = UCP "OCF" ;
+	// if( ! status_file ) status_file = UCP "ocf.log" ;
+    } else if( strcasecmp( CP this_host, "gamete" ) == 0 ) {
+	if( ! test_target_0 ) test_target_0 = UCP "schooners-2.jhuapl.edu" ;
+	if( ! sConfig ) sConfig = "config" ;
+	DbgLevel = 8 ;
+	// if( ! log_suffix ) log_suffix = UCP ".log" ;
+	// if( ! status_dir ) status_dir = UCP "OCF" ;
+	// if( ! status_file ) status_file = UCP "ocf.log" ;
+    } else if( strcasecmp( CP this_host, "ocfmaster" ) == 0 ) {
+	if( ! test_target_0 ) test_target_0 = UCP "ocf-labview.jhuapl.edu" ;
+	if( ! sConfig ) sConfig = "config.crism" ;
+    } else if( strcasecmp( CP this_host, "fgpc1" ) == 0 ) {
+	if( ! test_target_0 ) test_target_0 = UCP "schooners-2.jhuapl.edu" ;
+	if( ! sConfig ) sConfig = "config" ;
+    } else if( strcasecmp( CP this_host, "dgef-master" ) == 0 ) {
+	if( ! test_target_0 ) test_target_0 = UCP "schooners-2.jhuapl.edu" ;
+	if( ! sConfig ) sConfig = "config.lorri" ;
+d203 12
+d217 1
+a217 1
+int main( int argc, char **argv )
+d219 2
+a221 1
+    void PrintVersion( void ) ;
+d223 1
+a223 1
+    signal( SIGHUP, NiceExit ) ;
+d225 1
+a225 1
+    signal( SIGALRM, Triggered ) ;
+d231 4
+d238 4
+d274 1
+a274 1
+    SetTimer() ;
+a275 2
+    SetThisHost() ;
+    HostBasedDefaults() ;
+d278 1
+d289 2
+d306 4
+a309 1
+    if( ! sConfig ) sConfig = "config" ;
+d334 8
+a341 1
+	streams[vTopDev]->setName ( "http server" ) ;
+d349 1
+a349 1
+	DODBG(0)( DBGDEV, "Starting device %s.\r\n", streams[i]->getName() ) ;
+d356 1
+a356 7
+	DODBG(0)( DBGDEV, "\r\n" ) ;
+	DODBG(0)( DBGDEV, "Suspend control is ^].\r\n" ) ;
+	DODBG(0)( DBGDEV, "To quit, type 'q'.\r\n" ) ;
+	DODBG(0)( DBGDEV, "Control-T gives overall status.\r\n" ) ;
+	DODBG(0)( DBGDEV, "Control-D increases debug level.\r\n" ) ;
+	DODBG(0)( DBGDEV, "Control-E decreases debug level.\r\n" ) ;
+	DODBG(0)( DBGDEV, "\r\n" ) ;
+d366 3
+d379 1
+d385 1
+d388 1
+a388 1
+    while( running ) {
+d412 15
+a426 1
+	    streams[nKeyboard]->HandleRx() ;
+d428 4
+d433 1
+d441 2
+a442 2
+    if( DoDebug ) {
+	DisplayStatus(stderr) ;
+d445 1
+d486 1
+d523 1
+a523 1
+	InitializeAliases( line ) ;
+d534 13
+a546 1
+	DODBG(0)( DBGDEV, "Epoch for MET = %f\n", EpochMET ) ;
+d581 2
+d587 4
+d593 4
+d599 2
+d610 2
+d617 1
+a617 1
+void InitializeAliases( u_char *p_line )
+d621 1
+d623 13
+d642 1
+a642 1
+	    return ;
+a645 6
+    nscan = sscanf( CP p_line, "%*s <%[^>]> <%[^>]>", l_name, l_alias ) ;
+    if( nscan != 2 ) {
+	DODBG(0)( DBGDEV, "Alias not understood: %s\n", p_line ) ;
+	return ;
+    }
+
+d650 1
+a650 1
+	if( strcmp( CP p, CP l_name ) != 0 ) continue ;
+d653 3
+a655 1
+	for( u_char *q = l_alias ; *q != '\0' ; q++ ) {
+d658 5
+d665 1
+a665 1
+	newent.key = strdup( CP l_alias ) ;
+d668 2
+a669 3
+	if( ent ) {
+	    DODBG(0)( DBGDEV, "%s(dev=%d) and %s(dev=%d) ambiguous.\n", 
+		ent->key, (int)ent->data, l_alias, i ) ;
+d673 1
+a673 1
+	streams[i]->setAlias( l_alias ) ;
+d678 1
+a678 1
+	    return ;
+d680 1
+a680 1
+	return ;
+d682 1
+a682 2
+    DODBG(0)( DBGDEV, "Alias not understood: %s\n", p_line ) ;
+    exit(0) ;
+d700 6
+d720 2
+d777 2
+a778 2
+    if( now > dbglog ) {
+	DisplayStatus( DBGDEV ) ;
+d783 1
+a783 1
+void DisplayStatus( FILE *Out )
+d821 10
+@
+
+
+1.12
+log
+@Working version.
+@
+text
+@d102 1
+d132 1
+a132 1
+	if( ! test_target_0 ) test_target_0 = UCP "iem-ppc.jhuapl.edu" ;
+d134 3
+d163 1
+d276 7
+a282 5
+	DODBG(0)( DBGDEV, "\n" ) ;
+	DODBG(0)( DBGDEV, "Suspend control is ^].\n" ) ;
+	DODBG(0)( DBGDEV, "To quit, type 'q'.\n" ) ;
+	DODBG(0)( DBGDEV, "Control-R gives overall status.\n" ) ;
+	DODBG(0)( DBGDEV, "\n" ) ;
+d291 3
+d356 1
+a356 1
+    nscan = sscanf( CP p_line, "%*s <%[^>]> <%[^>]>", &l_name, &l_setup ) ;
+d440 1
+a440 2
+    nscan = sscanf( CP line, "<%[^>]> %s", 
+	&l_name, &l_type ) ;
+d506 1
+a506 1
+    nscan = sscanf( CP p_line, "%*s <%[^>]> <%[^>]>", &l_name, &l_alias ) ;
+d529 1
+a529 1
+		ent->key, ent->data, l_alias, i ) ;
+@
+
+
+1.11
+log
+@Minor change to http size.
+@
+text
+@d131 1
+a131 1
+	if( ! test_target_0 ) test_target_0 = UCP "opticalab.jhuapl.edu" ;
+d139 1
+a139 1
+static void CreateKiller( void )
+d141 1
+a141 1
+    FILE *out = fopen( ".kill-hydra", "w" ) ;
+d143 1
+a143 2
+	fprintf( out, "#!/bin/csh -f\n" ) ;
+	fprintf( out, "kill -1 %d\n", getpid() ) ;
+d145 1
+a145 1
+	chmod( ".kill-hydra", 0777 ) ;
+d147 1
+a147 1
+	perror( ".kill-hydra" ) ;
+d166 1
+a166 1
+    CreateKiller() ;
+@
+
+
+1.10
+log
+@Working Version. SRS630 included.
+@
+text
+@d131 1
+a131 1
+	if( ! test_target_0 ) test_target_0 = UCP "schooners-2.jhuapl.edu" ;
+@
+
+
+1.9
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@a42 1
+static char mainName[256] ;
+d99 6
+d139 13
+d156 1
+d159 1
+d166 2
+a167 1
+    SetStartTime() ;
+a168 1
+    strncpy( mainName, argv[0], 256 ) ;
+d335 1
+a335 1
+	DisplayStatus() ;
+d369 1
+a369 1
+	if( status ) {
+d551 1
+a551 1
+	    snprintf( DbgFile, 1024, "%s/%s.log", *argv, StartTime ) ;
+d577 1
+d621 5
+d628 1
+a628 1
+void DisplayStatus( void )
+d635 1
+a635 1
+    fprintf( stderr, "Status at %04d-%02d-%02d %02d:%02d:%02d UT\r\n",
+d663 1
+a663 1
+	fprintf( stderr, "%s\r\n", temp ) ;
+d665 1
+a665 1
+    fprintf( stderr, "\r\n" ) ;
+@
+
+
+1.8
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d18 1
+d20 2
+a21 1
+#include "electrometer.h"
+d27 3
+a29 1
+#include "newport.h"
+d35 1
+d40 1
+d42 2
+d80 1
+a80 1
+void RequestDebug( int dummy )
+d82 11
+a92 1
+    DoDebug = 1 ;
+d97 8
+a104 1
+    fprintf( stderr, "Broken pipe ignored.\r\n" ) ;
+d113 5
+a117 4
+	if( ! test_port_0 ) test_port_0 = UCP "10003" ;
+	if( ! log_suffix ) log_suffix = UCP ".log" ;
+	if( ! status_dir ) status_dir = UCP "OCF" ;
+	if( ! status_file ) status_file = UCP "ocf.log" ;
+d120 11
+a130 4
+	if( ! test_port_0 ) test_port_0 = UCP "10001" ;
+	if( ! log_suffix ) log_suffix = UCP ".log" ;
+	if( ! status_dir ) status_dir = UCP "OCF" ;
+	if( ! status_file ) status_file = UCP "ocf.log" ;
+d138 9
+a146 1
+    FILE *FINIT ;
+d148 2
+a149 1
+    foreign( --argc, ++argv ) ;
+d151 3
+a153 3
+    if( LogFile ) {
+	LOGDEV = fopen( LogFile, "w" ) ;
+	if( ! LOGDEV ) perror( LogFile ) ;
+d155 1
+a155 1
+    if( ! LOGDEV ) LOGDEV = stderr ;
+d157 1
+a157 1
+    setvbuf( LOGDEV, 0, _IONBF, 0 ) ;
+d161 2
+a162 1
+	fd = fileno( LOGDEV ) ;
+d164 1
+d166 2
+a167 1
+	fcntl( fd, F_SETFL, &file_status ) ;
+d170 2
+d173 1
+a173 1
+	// Have input been redirected or have we been forked?
+d178 1
+a178 1
+    DOLOG(0)(LOGDEV, "Keyboard input is %s\n",
+d181 2
+d186 1
+a186 1
+    if( ! log_prefix ) log_prefix = UCP "Logs/cal" ;
+d191 1
+a191 1
+	DOLOG(0)(LOGDEV, "Could not start logging.\r\n" ) ;
+d196 1
+a196 1
+    if( ! status_dir ) status_dir = UCP "OCF" ;
+d205 4
+a208 3
+	streams[0] = new Keyboard ;
+	streams[0]->setName ( "keyboard" ) ;
+	streams[0]->setDevice( 0 ) ;
+d212 4
+a215 1
+    FINIT = fopen( "config", "r" ) ;
+d217 2
+a218 2
+	DOLOG(0)( LOGDEV, "Could not open config file.\n" ) ;
+	DOLOG(0)( LOGDEV, "Cannot recover.\n" ) ;
+d229 2
+a230 2
+        DOLOG(0)( LOGDEV, "No devices found.\r\n" ) ;
+        DOLOG(0)( LOGDEV, "Cannot proceed.\r\n" ) ;
+d241 2
+a242 2
+    DOLOG(4)( LOGDEV, "Starting up operations.\r\n" ) ;
+    DOLOG(0)( LOGDEV, "Major thread activity begins now.\n" ) ;
+d245 1
+a245 1
+	DOLOG(0)( LOGDEV, "Starting device %s.\r\n", streams[i]->getName() ) ;
+d247 10
+a256 1
+	DOLOG(0)( LOGDEV, "Device <%s> started.\r\n", streams[i]->getName() );
+a257 2
+    DOLOG(4)( LOGDEV, "Start up completed.\n" ) ;
+    DOLOG(0)( LOGDEV, "Suspend control is ^].\n" ) ;
+d259 2
+a260 1
+    DOLOG(4)( LOGDEV, "Starting byte handling code.\n" ) ;
+d269 2
+a270 2
+    fd_set inpmask, outmask ;
+    int i, nfds, selectmax = 0 ;
+d272 1
+d274 5
+a278 4
+    signal( SIGALRM, Triggered ) ;
+    signal( SIGUSR1, RequestDebug ) ;
+    signal( SIGPIPE, BrokenPipe ) ;
+    SetTimer() ;
+a282 1
+	selectmax = 0 ;
+d284 2
+a285 15
+	for( i = 0 ; i <= TopDev() ; i++ ) {
+	    if( ! streams[i]->GetgCanRead() ) continue ;
+	    FD_SET( streams[i]->getFd(), &inpmask ) ;
+	    if( selectmax < streams[i]->getFd() ) 
+		selectmax = streams[i]->getFd() ;
+	}
+
+	FD_ZERO( &outmask ) ;
+	for( i = 0 ; i <= TopDev() ; i++ ) {
+	    if( ! streams[i]->GetgCanWrite() ) continue ;
+	    if( streams[i]->TxPending() ) FD_SET( streams[i]->getFd(), &outmask );
+	    if( selectmax < streams[i]->getFd() ) 
+		selectmax = streams[i]->getFd() ;
+	}
+	selectmax++ ;
+d290 1
+a290 1
+	nfds = select( selectmax, &inpmask, &outmask, NULL, &timeout ) ;
+d298 1
+a298 1
+		DOLOG(0)( LOGDEV, "Fatal error in Loop/select. Sorry!\n" ) ;
+d303 2
+a304 11
+	for( i = 0 ; i <= TopDev() ; i++ ) {
+	    if( ! streams[i]->GetgCanRead() ) continue ;
+	    if( streams[i]->getFd() < 0 ) continue ;
+	    if( FD_ISSET( streams[i]->getFd(), &inpmask) ) streams[i]->HandleRx();
+	}
+
+	for( i = 0 ; i <= TopDev() ; i++ ) {
+	    // if( ! streams[i]->TxPending() ) ;
+	    if( ! streams[i]->GetgCanWrite() ) continue ;
+	    if( streams[i]->getFd() < 0 ) continue ;
+	    if( FD_ISSET( streams[i]->getFd(), &outmask) ) streams[i]->HandleTx();
+a305 1
+
+d325 1
+a325 1
+    bool flag_start = false, flag_enable = true ;
+d329 2
+a330 2
+	DOLOG(0)( LOGDEV, "Option not understood: %s\n", p_line ) ;
+	return ;
+d337 1
+a337 1
+    }
+d346 1
+a346 1
+	    break ;
+d350 1
+a350 1
+	    DOLOG(0)( LOGDEV, "Option not understood: %s\n", p_line ) ;
+d353 1
+a353 1
+	break ;
+d355 2
+d383 2
+a384 2
+	    DOLOG(0)( LOGDEV, "Line too long: <%s>\n", line ) ;
+	    return( true ) ;
+d389 2
+a390 2
+	DOLOG(0)( LOGDEV, "Line not understood: <%s>\n", line ) ;
+	return( true ) ;
+d399 8
+d415 1
+a415 1
+	DOLOG(0)( LOGDEV, "Line not understood: <%s>\n", line ) ;
+d420 2
+a421 2
+    DOLOG(9)( LOGDEV, "%4d %2d Name: <%s>\n", lineno, wport, l_name ) ;
+    DOLOG(9)( LOGDEV, "%4d %2d Type: <%s>\n", lineno, wport, l_type ) ;
+d435 10
+a444 4
+    } else if( strcasecmp(CP l_type,"network-client-newport") == 0 ) {
+	streams[wport] = t_stream = new Newport() ;
+    } else if( strcasecmp(CP l_type,"network-client-electrometer") == 0 ) {
+	streams[wport] = t_stream = new Electrometer() ;
+d447 2
+d450 2
+a451 2
+	DOLOG(0)( LOGDEV, "\007 Unknown device: %s of type %s.\n", l_name, l_type ) ;
+	return( true ) ;
+d480 1
+a480 1
+	DOLOG(0)( LOGDEV, "Alias not understood: %s\n", p_line ) ;
+d500 1
+a500 1
+	    DOLOG(0)( LOGDEV, "%s(dev=%d) and %s(dev=%d) ambiguous.\n", 
+d512 1
+a512 1
+	break ;
+d514 2
+d527 10
+a536 4
+        } else if( strcmp( ap, "--port" ) == 0 ) {
+	    test_port_0 = UCP *argv ; argv++ ; argc-- ;
+        } else if( strcmp( ap, "--log" ) == 0 ) {
+	    LogFile = *argv ; argv++ ; argc-- ;
+d624 1
+a625 1
+	    temp[p_end] = ' ' ;
+d629 6
+a634 1
+	    col += gMaxLen[k] + 1 ;
+d639 1
+@
+
+
+1.7
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d4 1
+d34 2
+a35 1
+static const int EnableKeyboard = true ;
+d117 17
+d137 1
+a137 1
+    if( ! log_prefix ) log_prefix = UCP "Logs/crism" ;
+d145 1
+a145 1
+    StatusLog->L_Write_U( "main", "INFO", "CRISM OCF LVIF Starting." ) ;
+d181 1
+a181 1
+    if( html_port ) {
+d480 2
+a481 2
+        } else if( strcmp( ap, "--html" ) == 0 ) {
+	    html_port = UCP *argv ; argv++ ; argc-- ;
+@
+
+
+1.6
+log
+@Working. Correct for crlf.
+@
+text
+@d91 1
+a91 2
+	// if( ! test_target_0 ) test_target_0 = UCP "schooners-2.jhuapl.edu" ;
+	if( ! test_target_0 ) test_target_0 = UCP "opticalab.jhuapl.edu" ;
+d108 1
+a108 1
+	LOGDEV = fopen( LogFile, "a" ) ;
+d475 1
+d505 1
+d512 1
+d515 1
+a515 1
+	HTTP->BuildStatus() ;
+d539 1
+@
+
+
+1.5
+log
+@Working for CRISM config.
+@
+text
+@d91 2
+a92 1
+	if( ! test_target_0 ) test_target_0 = UCP "schooners-2.jhuapl.edu" ;
+@
+
+
+1.4
+log
+@Working.
+@
+text
+@d18 1
+d28 1
+d369 4
+d485 6
+a490 1
+	strncpy( gStatus[j][2], CP streams[i]->getAlias(), MAXDEVSTR ) ;
+d496 1
+a496 1
+	    streams[i]->PleaseReport( j, 2 ) ;
+@
+
+
+1.3
+log
+@Working. Supports SR630.
+@
+text
+@d14 1
+d16 4
+d21 4
+a25 3
+#include "client.h"
+#include "monochromator.h"
+#include "filterwheel.h"
+a27 3
+#include "main.h"
+#include "logging.h"
+#include "periodic.h"
+d73 5
+d128 1
+a128 1
+    OCF_Status->SetInterval( 10 ) ;
+d160 7
+d180 3
+d193 1
+d196 1
+a196 1
+    while( true ) {
+d252 1
+d254 4
+a354 1
+	t_stream->setType( Stream::TypeServer ) ;
+a356 1
+	t_stream->setType( Stream::TypeClient ) ;
+a358 1
+	t_stream->setType( Stream::TypeTempMon ) ;
+a360 1
+	t_stream->setType( Stream::TypeMonochromator ) ;
+a362 1
+	t_stream->setType( Stream::TypeFilterWheel ) ;
+d365 2
+a366 1
+	t_stream->setType( Stream::TypeSR630 ) ;
+d455 2
+d463 73
+@
+
+
+1.2
+log
+@Good version, but revising config/aliases file mechanism
+in next release.
+@
+text
+@d18 4
+d24 1
+d26 1
+a26 1
+static const int MajorTick = 100000 ;
+d48 1
+a48 1
+static volatile int CheckQueue = 0 ;
+d54 1
+a54 1
+    CheckQueue++ ;
+d70 19
+d95 15
+d111 1
+a111 1
+    StatusLog = new Logging( "Logs/crism" ) ;
+d113 2
+a114 1
+	DOLOG(0)(LOGDEV, "Could not open logging.\r\n" ) ;
+d116 6
+a121 4
+    DOLOG(0)(LOGDEV, "%08x\n", StatusLog ) ;
+    StatusLog->Lock() ;
+    StatusLog->Write( "main", "INFO", "CRISM OCF LVIF Starting." ) ;
+    StatusLog->Unlock() ;
+d123 1
+a123 6
+    FINIT = fopen( "config", "r" ) ;
+    if( FINIT == NULL ) {
+	DOLOG(0)( LOGDEV, "Could not open config file.\n" ) ;
+	DOLOG(0)( LOGDEV, "Cannot recover.\n" ) ;
+	exit(0) ;
+    }
+d133 8
+a140 1
+    for( int i = (vTopDev+1) ; i < MAXSTREAM ; i++ ) {
+a142 1
+        vTopDev = i ;
+d147 2
+a148 2
+        DOLOG(0)( LOGDEV, "No devices found.\n" ) ;
+        DOLOG(0)( LOGDEV, "Cannot proceed.\n" ) ;
+d152 1
+a152 9
+    FINIT = fopen( "aliases", "r" ) ;
+    if( FINIT == NULL ) {
+	DOLOG(0)( LOGDEV, "Could not open aliases file.\n" ) ;
+    } else {
+	InitializeAliases( FINIT ) ;
+	fclose( FINIT ) ;
+    }
+
+    DOLOG(4)( LOGDEV, "Starting up operations.\n" ) ;
+d155 2
+d158 1
+d170 1
+a170 1
+    int i, nfds, selectmax = 32 ;
+d175 1
+a175 1
+    // SetTimer() ;
+d178 1
+a178 1
+	if( CheckQueue ) RunQueue() ;
+d180 1
+d185 2
+d193 2
+d196 1
+d202 3
+a204 1
+	if( nfds <= 0 ) {
+d209 1
+a209 1
+		DOLOG(0)( LOGDEV, "Fatal error in Loop/select.\n" ) ;
+d230 1
+a230 1
+void RunQueue( void )
+d232 22
+a253 1
+    int i ;
+d255 15
+a269 1
+    for( i = 0 ; i <= TopDev() ; i++ ) {
+a270 1
+    CheckQueue = 0 ;
+d272 1
+a272 2
+
+int InitializePorts( FILE *inp, int wport )
+d279 1
+a279 2
+    u_char l_setup[2048] = "" ;
+    int nscan ;
+d301 5
+d307 21
+a327 5
+    nscan = sscanf( CP line, "<%[^>]> %s <%[^>]>", 
+	&l_name, &l_type, &l_setup ) ;
+    DOLOG(8)( LOGDEV, "%2d Name: <%s>\n", wport, l_name ) ;
+    DOLOG(8)( LOGDEV, "%2d Type: <%s>\n", wport, l_type ) ;
+    DOLOG(8)( LOGDEV, "%2d Init: <%s>\n", wport, l_setup ) ;
+d330 1
+a330 1
+	streams[wport] = t_stream = new Server( l_setup ) ;
+d333 1
+a333 1
+	streams[wport] = t_stream = new Client( l_setup ) ;
+d335 12
+d348 1
+a348 1
+	DOLOG(0)( LOGDEV, "Unknown device: %s of type %s.\n", l_name, l_type ) ;
+d354 1
+d361 1
+a361 1
+void InitializeAliases( FILE *f_in )
+a362 3
+    u_char line[4096] ;
+    int lines = 0, pnt = 0 ;
+    u_char *ucstatus ;
+d366 1
+d368 11
+a378 2
+    if( ! hcreate( 1024 ) ) {
+	perror( "hash create" ) ;
+a380 11
+    
+    while( true ) {
+	lines = 0 ; pnt = 0 ;
+	while( true ) {
+	    line[pnt] = '\0' ;
+	    ucstatus = UCP fgets( CP line+pnt, 2048, f_in ) ;
+	    int i_pnt = strchomp( line ) ;
+	    if( *line == '#' || *line == '\0' ) {
+		if( ! ucstatus ) return ;
+		continue ;
+	    }
+d382 9
+a390 3
+	    pnt = i_pnt ;
+	    lines++ ;
+	    if( line[pnt] != '\\' ) break ;
+d393 9
+a401 11
+	nscan = sscanf( CP line, "<%[^>]> <%[^>]>", &l_name, &l_alias ) ;
+	if( nscan != 2 )
+	    continue ;
+	// Brute force lookup, since this will be a small table
+	// and is only looked at once during startup!
+	for( int i = 0 ; i <= TopDev() ; i++ ) {
+	    const u_char *p = streams[i]->getName() ;
+	    if( strcmp( CP p, CP l_name ) != 0 ) continue ;
+	    for( u_char *p = l_alias ; *p != '\0' ; p++ ) {
+		*p = tolower( *p ) ;
+	    }
+d403 1
+a403 9
+	    ENTRY newent, *ent ;
+	    newent.key = strdup( CP l_alias ) ;
+	    newent.data = (void*) i ;
+	    ent = hsearch( newent, FIND ) ;
+	    if( ent ) {
+		DOLOG(0)( LOGDEV, "%s(dev=%d) and %s(dev=%d) ambiguous\n", 
+		    ent->key, ent->data, l_alias, i ) ;
+		exit(0) ;
+	    }
+d405 4
+a408 5
+	    ent = hsearch( newent, ENTER ) ;
+	    if( ! ent ) {
+		perror( "hash setup" ) ;
+		return ;
+	    }
+d410 1
+d414 27
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d19 1
+d72 8
+@

@@ -1,0 +1,1208 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.12;
+
+1.12
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.11;
+
+1.11
+date	2004.07.22.18.34.23;	author murphy;	state Exp;
+branches;
+next	1.10;
+
+1.10
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.9;
+
+1.9
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.11.02.35.12;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.05.25.11.15.47;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.11.54.25;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Handles the communication between a Labview socket and
+the I/F app. Develops queries and handles responses.
+Logs the transaction.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "support.h"
+
+Client::Client( void )
+{
+    ip_set = false ;
+    port_set = false ;
+    retry_time = 60 ;
+    retry_ticker = 0 ;
+    retry_count = 0 ;
+    disconnects = 0 ;
+    devtype = TypeClient ;
+    devtypestring = "Client" ;
+    r_timeo = 20000 ; // 20.0 secs
+    w_timeo = 20000 ; // 20.0 secs
+
+    target_port = 0 ;
+    uc_ip = 0 ;
+    connection_good = false ;
+    reconnect = false ;
+    can_report = true ;
+
+    client_state = 0 ;
+    n_cmds = 0 ;
+    cmd_time = 0 ;
+    new_timing = true ;
+
+    sem_init( &sem_device, 0, 0 ) ;
+    mQueue = new Queue() ;
+    is_a_client = true ;
+
+    DODBG(9)(DBGDEV, "Leaving client constructor.\n" ) ;
+}
+
+void Client::StartOps( void )
+{
+    DODBG(9)(DBGDEV, "%s: client being started up.\n", name ) ;
+    StartThread() ;
+}
+
+int Client::Parse( u_char *key, u_char *value )
+{
+    if( strcasecmp( CP key, "target" ) == 0 ) {
+	if( test_target_0 && strcasecmp( CP value, "TestHost0" ) == 0 ) {
+	    value = test_target_0 ;
+	}
+	uc_target = UCP strdup( CP value ) ;
+	ip_set = true ;
+    } else if( strcasecmp( CP key, "port" ) == 0 ) {
+	uc_target_port = UCP strdup( CP value ) ;
+	port_set = true ;
+    } else if( strcasecmp( CP key, "retry" ) == 0 ) {
+	int t_retry_time = strtol( CP value, NULL, 0 ) ;
+	if( t_retry_time > 0 ) retry_time = t_retry_time ;
+    } else if( strcasecmp( CP key, "timeout/write" ) == 0 ) {
+	double d_t_o_w = strtod( CP value, NULL ) ;
+	if( d_t_o_w > 0 ) w_timeo = (int)(d_t_o_w * 1000) ;
+    } else if( strcasecmp( CP key, "timeout/read" ) == 0 ) {
+	double d_t_o_r = strtod( CP value, NULL ) ;
+	if( d_t_o_r > 0 ) r_timeo = (int)(d_t_o_r * 1000) ;
+    } else if( strcasecmp( CP key, "cycle" ) == 0 ) {
+	double d_cycle = strtod( CP value, NULL ) ;
+	if( d_cycle >= 0 ) cycle = (int)(d_cycle * 1000) ;
+	else cycle = -1 ;
+    } else if( strcasecmp( CP key, "delay" ) == 0 ) {
+	double d_delay = strtod( CP value, NULL ) ;
+	if( d_delay >= 0 ) delay = (int)(d_delay * 1000) ;
+    } else {
+	return( Stream::Parse( key, value ) ) ;
+    }
+    return( true ) ;
+}
+
+int Client::SetupDetails( void )
+{
+    target_port = GetPortNumber( uc_target_port ) ;
+    if( target_port < 0 ) {
+	DODBG(0)(DBGDEV, "Bad port number.\n" ) ;
+	return( false ) ;
+    }
+
+    target_protocol = GetProtocol( uc_target_port ) ;
+    if( target_protocol < 0 ) {
+	DODBG(0)(DBGDEV, "Bad protocol.\n" ) ;
+	return( false ) ;
+    }
+
+    socket_type = (target_protocol == IPPROTO_UDP) ? SOCK_DGRAM : SOCK_STREAM ;
+
+    fd = socket( AF_INET, socket_type, target_protocol ) ;
+    if( fd < 0 ) {
+	perror( CP name ) ;
+	DODBG(0)(DBGDEV, "Client socket could not be opened.\n" ) ;
+	return( false ) ;
+    }
+
+    SetCloseOnExec( fd ) ;
+
+    DODBG(4)(DBGDEV, "Client %s socket: fd=%d port=%d\n", 
+	name, fd, target_port );
+
+    int status ;
+    u_char full[256], ip[256] ;
+
+    DODBG(4)( DBGDEV,
+        "%s: will attempt connection to: %s port=%d\n",
+        name, uc_target, target_port
+    ) ;
+
+    status = GetHostnameInfo( uc_target, &sin, full, ip ) ;
+    if( !status ) {
+	DODBG(0)(DBGDEV, "%s: could not resolve target: %s\n", name, uc_target);
+	return( false ) ;
+    }
+    if( uc_ip ) free( uc_ip ) ;
+    uc_ip = UCP strdup( CP ip ) ;
+
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons( target_port ) ;
+    return( true ) ;
+}
+
+void Client::DisplayConnection( void )
+{
+    struct sockaddr localsock ;
+    socklen_t localsocklen ;
+    int noport ;
+
+    localsocklen = sizeof(localsock) ;
+    memset( (void*)(&localsock), 0, localsocklen ) ;
+    int status = getsockname( fd, &localsock, &localsocklen ) ;
+    if( status ) {
+	perror( "getsockname" ) ;
+	return ;
+    }
+
+    // noport = *(unsigned short*)localsock.sa_data ;
+    memcpy( (void*)&noport, (void*)localsock.sa_data, sizeof(noport) ) ;
+    from_port = ntohs( noport ) ;
+
+    DODBG(1)( DBGDEV, "%s: connected to %s (%s:%d) fd=%d\n",
+            name, uc_target, uc_ip, target_port, fd ) ;
+
+    char c_status[256] ;
+    snprintf( c_status, 256, "Connected to %s(%d)", CP uc_target, target_port );
+    StatusLog->L_Write_U( name, "INFO", c_status ) ;
+}
+
+int Client::ConnectionStarted( void )
+{
+    ResetRxTimedOut() ;
+    mQueue->InitQueue() ;
+    return( DeviceOpen() ) ;
+}
+
+void Client::ConnectionEnded( void )
+{
+    DeviceClose() ;
+    shutdown( fd, 2 ) ;
+    close(fd) ;
+    fd = -1 ;
+}
+
+int Client::DeviceOpen( void )
+{
+    DODBG(0)(DBGDEV, "Device Open base: should never see this.\n" ) ;
+    return( true ) ;
+}
+
+void Client::DeviceClose( void )
+{
+    DODBG(0)(DBGDEV, "Device Close base: should never see this.\n" ) ;
+}
+
+void Client::RunThread( void )
+{
+    if( ! port_set ) return ;
+    if( ! ip_set ) return ;
+
+    retry_count = 0 ;
+
+    while( true ) {
+	time_t c_start, c_end ; 
+
+	n_cmds = 0 ;
+	while( true ) {
+	    client_state = 0 ;
+
+	    while( ! SetupDetails() ) sleep( 60 ) ; // Just once/minute.
+
+	    DODBG(4)(DBGDEV, "Attempting connection for %s.\n", name ) ;
+	    client_state = 1 ;
+	    int status = 0 ;
+	    while( 1 ) {
+		status = connect( fd, (struct sockaddr*)&sin, sizeof(sin)) ;
+		if( !status ) break ;
+		if( errno == EINTR ) continue ;
+		break ;
+	    }
+	    if( !status ) break ;
+	    int s_errno = errno ;
+
+	    if( s_errno == EINPROGRESS ) {
+		fprintf( stderr, "<%s> IN PROGRESS error\n", name ) ;
+	    } else if( s_errno == EISCONN ) {
+		fprintf( stderr, "<%s> CONNECTION IN PLACE error\n", name ) ;
+	    } else if( s_errno == ECONNREFUSED ) {
+		fprintf( stderr, "<%s> CONNECTION REFUSED error\n", name ) ;
+	    } else {
+		perror( CP name ) ;
+		fprintf( stderr, "<%s> CLIENT/CONNECT error\n", name ) ;
+	    }
+
+	    DODBG(4)(DBGDEV, "Retry connect for %s after sleeping for %d s.\n", name, retry_time ) ;
+
+	    shutdown(fd,2) ; close(fd) ; fd = -1 ;
+
+	    client_state = 6 ;
+	    retry_count++ ;
+	    retry_ticker = retry_time ;
+	    while( retry_ticker > 0 ) {
+		sleep( 1 ) ;
+		retry_ticker-- ;
+	    }
+	}
+	DisplayConnection() ;
+	time(&c_start) ;
+
+	client_state = 2 ;
+	connection_good = ConnectionStarted() ;
+	reconnect = false ;
+	if( retry_count )
+	    fprintf( stderr, "%s: Connection finally accepted.\n", name ) ;
+
+	retry_count = 0 ;
+	ClearWait() ;
+
+	while( connection_good && bRunning ) {
+	    struct timeval tv_1, tv_2 ;
+
+	    client_state = 3 ;
+	    WaitOnSignal() ;
+	    if( bRunning == false )
+		break ;
+
+	    client_state = 4 ;
+
+	    gettimeofday( &tv_1, 0 ) ;
+
+	    InitiateTransaction() ;
+	    connection_good = HandleRequest() ;
+
+	    gettimeofday( &tv_2, 0 ) ;
+	    mQueue->ReleaseWait() ;
+	    if( ! mQueue->GetWaiting() ) {
+		mQueue->ReleaseThisTransaction() ;
+	    }
+	    client_state = 5 ;
+
+	    int t_cmd_time = (tv_2.tv_usec - tv_1.tv_usec)/1000 + 
+		1000* (tv_2.tv_sec - tv_1.tv_sec) ;
+	    DODBG(2)(DBGDEV, "%s required %d ms (Conn=%s).\n", 
+		name, t_cmd_time, connection_good?"OK":"FAIL" ) ;
+
+	    n_cmds++ ;
+	    if( new_timing ) {
+		cmd_time = t_cmd_time ; new_timing = false ;
+	    } else {
+		if( cmd_time < t_cmd_time ) cmd_time = t_cmd_time ;
+	    }
+
+	    if( reconnect ) break ;
+	}
+	ConnectionEnded() ;
+	time(&c_end) ;
+	disconnects++ ;
+	if( (c_end-c_start) < retry_time ) {
+	    client_state = 6 ;
+	    retry_ticker = 5 + retry_time - (c_end-c_start) ;
+	    while( retry_ticker > 0 ) {
+		sleep( 1 ) ;
+		retry_ticker-- ;
+	    }
+	}
+    }
+}
+
+int Client::InitiateTransaction( void )
+{
+    const u_char *request ;
+    mQueue->GetNextTransaction() ;
+
+    request = mQueue->GetRequest() ;
+    DODBG(6)( DBGDEV, "Request %s: <%s>\n", name, request ) ;
+
+    int n_toks = TokenizeRequest( request, client_cmd ) ;
+    DODBG(10)( DBGDEV, "Request %s: toks=%d\n", name, client_cmd.nCmds ) ;
+
+    return( n_toks ) ;
+}
+
+int Client::HandleRequest( void )
+{
+    char resp[256] ;
+
+    if( client_cmd.nCmds < 2 ) return( false ) ;
+
+    if( strcasecmp( CP client_cmd.cmd[1], "errors" ) == 0 ) {
+	ClearNErrs() ;
+	mQueue->SetResponse( ERR_101_CLRERR ) ;
+	return( true ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "commands" ) == 0 ) {
+	ClearNCmds() ;
+	mQueue->SetResponse( ERR_102_CLRCMD ) ;
+	return( true ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "reconnect" ) == 0 ) {
+	reconnect = true ;
+	mQueue->SetResponse( ERR_103_RECNCT ) ;
+	return( true ) ;
+    } 
+
+    if( strcasecmp( CP client_cmd.cmd[1], "cycle" ) == 0 ) {
+	if( client_cmd.nCmds == 3 ) {
+	    double d_cycle = strtod( CP client_cmd.cmd[2], NULL ) ;
+	    if( d_cycle >= 0 ) cycle = (int)(d_cycle * 1000) ;
+	    else cycle = -1 ;
+	    StopPeriodicTasks() ; StartPeriodicTasks() ;
+	}
+	snprintf( resp, sizeof(resp), 
+	    ERR_104_PERIOD " Cycle = %d Delay = %d.", cycle, delay ) ;
+	mQueue->SetResponse( resp ) ;
+	return( true ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "delay" ) == 0 ) {
+	double d_delay ;
+	if( client_cmd.nCmds == 3 )
+	    d_delay = strtod( CP client_cmd.cmd[2], NULL ) ;
+	else
+	    d_delay = -1 ;
+    
+	if( d_delay >= 0 ) {
+	    delay = (int)(d_delay * 1000) ;
+	    StopPeriodicTasks() ; StartPeriodicTasks() ;
+	}
+	snprintf( resp, sizeof(resp), 
+	    ERR_104_PERIOD " Cycle = %d Delay = %d.", cycle, delay ) ;
+	mQueue->SetResponse( resp ) ;
+	return( true ) ;
+
+    } else if( strcasecmp( CP client_cmd.cmd[1], "timeout/read" ) == 0 ) {
+	double d_t_o_r ;
+	if( client_cmd.nCmds == 3 )
+	    d_t_o_r = strtod( CP client_cmd.cmd[2], NULL ) ;
+	else
+	    d_t_o_r = -1 ;
+    
+	if( d_t_o_r > 0 ) r_timeo = (int)(d_t_o_r * 1000) ;
+	snprintf( resp, sizeof(resp), 
+	    ERR_104_PERIOD " Read timeout = %d.", r_timeo ) ;
+	mQueue->SetResponse( resp ) ;
+	return( true ) ;
+    }
+
+    return( false ) ;
+}
+
+void Client::AddStatus( int w_status, u_char *key, u_char *value )
+{
+    OCF_Status->AddStatus( mStatus+w_status, name, key, value ) ;
+}
+
+int Client::NoStatus( int w_status )
+{
+    return( OCF_Status->NoStatus( mStatus+w_status ) ) ;
+}
+
+// This is called from another thread. Anything changeable that is referenced
+// in here should be declared volatile.
+void Client::PleaseReport( int wline, int scol )
+{
+    if( ! can_report ) return ;
+    if( ! port_set || ! ip_set ) return ;
+
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "P %d", target_port ) ;
+
+    int l_target = strlen( CP uc_target ) ;
+    if( l_target < 16 ) {
+	strncpy( gStatus[wline][scol], CP uc_target, MAXDEVSTR ) ;
+    } else {
+	u_char *p = UCP strchr( CP uc_target, '.' ) ;
+	if( p ) l_target = p - uc_target ;
+	if( l_target > 15 ) l_target = 15 ;
+	memcpy( gStatus[wline][scol], uc_target, l_target ) ;
+	gStatus[wline][scol][l_target] = '\0' ;
+    }
+    scol++ ;
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "Q=%d", mQueue->MaxQueue() ) ;
+
+    switch( client_state ) {
+    case 0:
+        strncpy( gStatus[wline][scol++], "Startup", MAXDEVSTR ) ;
+        break ;
+    case 1:
+        strncpy( gStatus[wline][scol++], "Connecting", MAXDEVSTR ) ;
+        break ;
+    case 2:
+        strncpy( gStatus[wline][scol++], "Device Init", MAXDEVSTR ) ;
+	break ;
+    case 3:
+        strncpy( gStatus[wline][scol++], "Await Cmd", MAXDEVSTR ) ;
+        break ;
+    case 4:
+	switch( stream_state ) {
+	    case 0:
+	    strncpy( gStatus[wline][scol++], "Cmd Rcvd", MAXDEVSTR ) ;
+	    break ;
+	    case 1:
+	    strncpy( gStatus[wline][scol++], "Write next", MAXDEVSTR ) ;
+	    break ;
+	    case 2:
+	    strncpy( gStatus[wline][scol++], "Writing", MAXDEVSTR ) ;
+	    break ;
+	    case 3:
+	    strncpy( gStatus[wline][scol++], "Write Done", MAXDEVSTR ) ;
+	    break ;
+	    case 4:
+	    strncpy( gStatus[wline][scol++], "Reading", MAXDEVSTR ) ;
+	    break ;
+	    case 5:
+	    strncpy( gStatus[wline][scol++], "Read Done", MAXDEVSTR ) ;
+	    break ;
+	}
+	break ;
+    case 5:
+        strncpy( gStatus[wline][scol++], "Cmd Done", MAXDEVSTR ) ;
+        break ;
+    case 6:
+        strncpy( gStatus[wline][scol++], "Retry", MAXDEVSTR ) ;
+        strncpy( gStatus[wline][scol++], "in", MAXDEVSTR ) ;
+        snprintf( gStatus[wline][scol++], MAXDEVSTR, "%d s", retry_ticker ) ;
+	if( disconnects + retry_count )
+	    snprintf( gStatus[wline][scol++], MAXDEVSTR, "R=%d,D=%d", 
+		retry_count, disconnects ) ;
+	break ;
+    }
+    if( n_cmds ) {
+	snprintf( gStatus[wline][scol++], MAXDEVSTR, "C=%d", n_cmds ) ;
+	snprintf( gStatus[wline][scol++], MAXDEVSTR, "%dms", cmd_time ) ;
+	if( errors + disconnects )
+	    snprintf( gStatus[wline][scol++], MAXDEVSTR, "E=%d,D=%d", 
+		errors, disconnects ) ;
+	new_timing = true ;
+    }
+}
+
+void Client::StartPeriodicTasks( void )
+{
+    DODBG(0)(DBGDEV, "Should not be here: StartPeriodicTasks.\n" ) ;
+}
+void Client::StopPeriodicTasks( void )
+{
+    DODBG(0)(DBGDEV, "Should not be here: StopPeriodicTasks.\n" ) ;
+}
+
+static const char* cClientOptions[] = {
+    "errors",
+    "commands",
+    "reconnect",
+    "cycle %f",
+    "delay %f"
+    } ;
+
+int Client::ListOptions( int iN, u_char *cOption, int iOptionLength )
+{
+    int M = 0 ;
+    strcpy( CP cOption, "" ) ;
+
+    int iMax = sizeof(cClientOptions)/sizeof(char*) ;
+    if( 0 <= iN && iN < iMax )
+	strncpy( CP cOption, cClientOptions[iN], iOptionLength ) ;
+
+    M = strlen( CP cOption ) ;
+    return( M ) ;
+}
+
+void Client::ResetRetry( void )
+{
+    retry_ticker = -1 ;
+}
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.12
+log
+@Working system. Backing up.
+@
+text
+@d76 2
+a77 2
+	if( d_cycle > 0 ) cycle = (int)(d_cycle * 1000) ;
+	if( delay < 0 ) delay = cycle ;
+d110 2
+d150 2
+a151 1
+    noport = *(unsigned short*)localsock.sa_data ;
+d206 7
+a212 1
+	    int status = connect( fd, (struct sockaddr*)&sin, sizeof(sin)) ;
+d216 9
+a224 5
+	    perror( CP name ) ;
+
+	    if( s_errno == EISCONN ) {
+		// Already connected? How? Assume the worst.
+		// break ;
+d227 1
+a227 4
+	    // What else can we do but ignore error and hope ...
+	    // if( s_errno != ECONNREFUSED ) return ;
+
+	    DODBG(4)(DBGDEV, "Retry connect for %s after sleeping.\n", name ) ;
+d246 1
+a246 1
+	    fprintf( stderr, "%s: Connection accepted\n", name ) ;
+d251 1
+a251 1
+	while( connection_good ) {
+d256 2
+d336 4
+a339 9
+	double d_cycle ;
+	if( client_cmd.nCmds == 3 )
+	    d_cycle = strtod( CP client_cmd.cmd[2], NULL ) ;
+	else
+	    d_cycle = -1 ;
+    
+	if( d_cycle >= 0 ) {
+	    cycle = (int)(d_cycle * 1000) ;
+	    if( delay < 0 ) delay = cycle ;
+d475 26
+@
+
+
+1.11
+log
+@Working version.
+@
+text
+@d41 4
+d123 1
+a123 1
+	DODBG(0)(DBGDEV, "%s: could not resolve target.\n", name, uc_target ) ;
+d161 1
+a161 1
+    ResetTimeoutState() ;
+d323 6
+a328 1
+    if( client_cmd.nCmds < 3 ) return( false ) ;
+a329 2
+    if( strcasecmp( CP client_cmd.cmd[1], "cycle" ) == 0 ) {
+	double d_cycle = strtod( CP client_cmd.cmd[2], NULL ) ;
+d340 6
+a345 1
+	double d_delay = strtod( CP client_cmd.cmd[2], NULL ) ;
+d354 13
+@
+
+
+1.10
+log
+@Working Version. SRS630 included.
+@
+text
+@d22 2
+d186 2
+d218 6
+a223 1
+	    sleep( retry_time ) ;
+d231 4
+d273 1
+d276 5
+a280 1
+	    sleep( 5 + retry_time - (c_end-c_start) ) ;
+a281 1
+	disconnects++ ;
+d352 5
+d418 6
+a423 1
+        strncpy( gStatus[wline][scol++], "Await Retry", MAXDEVSTR ) ;
+@
+
+
+1.9
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d25 2
+a26 2
+    r_timeo = 30000 ; // 30.0 secs
+    w_timeo = 30000 ; // 30.0 secs
+d32 1
+a41 19
+int Client::SetOptions( u_char *setup )
+{
+    DODBG(9)(DBGDEV, "%s: %s\n", name, setup ) ;
+    u_char w_tmp[2048] ;
+
+    if( ! setup ) return( true ) ;
+
+    strncpy( CP w_tmp, CP setup, 2048 ) ;
+
+    sParse parse = { w_tmp, 0, 0 } ;
+
+    while( true ) {
+	bool state = GenericParser( parse, UCP ",", UCP "=" ) ;
+	if( ! state ) break ;
+	Parse( parse.key, parse.value ) ;
+    }
+    return( false ) ;
+}
+
+a47 1
+
+d75 3
+a77 3
+    } else 
+	return( false ) ;
+
+d155 1
+a155 1
+    timeout_state = 0 ;
+a231 1
+	    n_cmds++ ;
+d249 1
+d339 3
+a408 1
+
+@
+
+
+1.8
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d22 1
+d25 2
+a26 2
+    r_timeo = 10000 ; // 10.0 secs
+    w_timeo = 1000 ; // 1.0 secs
+d38 1
+a38 1
+    DOLOG(9)(LOGDEV, "Leaving client constructor.\n" ) ;
+d43 1
+a43 1
+    DOLOG(9)(LOGDEV, "%s: %s\n", name, setup ) ;
+d62 1
+a62 1
+    DOLOG(9)(LOGDEV, "%s: client being started up.\n", name ) ;
+a75 3
+	if( test_port_0 && strcasecmp( CP value, "TestPort0" ) == 0 ) {
+	    value = test_port_0 ;
+	}
+d104 1
+a104 1
+	DOLOG(0)(LOGDEV, "Bad port number.\n" ) ;
+d110 1
+a110 1
+	DOLOG(0)(LOGDEV, "Bad protocol.\n" ) ;
+d118 2
+a119 2
+	perror( "socket" ) ;
+	DOLOG(0)(LOGDEV, "Client socket could not be opened.\n" ) ;
+d123 1
+a123 1
+    DOLOG(4)(LOGDEV, "Client %s socket: fd=%d port=%d\n", 
+d129 1
+a129 1
+    DOLOG(4)( LOGDEV,
+d136 1
+a136 1
+	DOLOG(0)(LOGDEV, "%s: could not resolve target.\n", name, uc_target ) ;
+d164 1
+a164 1
+    DOLOG(1)( LOGDEV, "%s: connected to %s (%s:%d) fd=%d\n",
+d174 2
+d189 1
+a189 1
+    DOLOG(0)(LOGDEV, "Device Open base: should never see this.\n" ) ;
+d195 1
+a195 1
+    DOLOG(0)(LOGDEV, "Device Close base: should never see this.\n" ) ;
+d204 2
+d212 1
+a212 1
+	    DOLOG(9)(LOGDEV, "Attempting connection for %s.\n", name ) ;
+d218 1
+a218 1
+	    perror( CP uc_target ) ;
+d228 1
+a228 1
+	    DOLOG(9)(LOGDEV, "Retry connect for %s after sleeping.\n", name ) ;
+d236 1
+d266 1
+a266 1
+	    DOLOG(0)(LOGDEV, "%s required %d ms (Conn=%s).\n", 
+d278 6
+d293 1
+a293 1
+    DOLOG(0)( LOGDEV, "Request %s: <%s>\n", name, request ) ;
+d296 1
+a296 1
+    DOLOG(0)( LOGDEV, "Request %s: toks=%d\n", name, client_cmd.nCmds ) ;
+d303 2
+d309 1
+d313 1
+d317 1
+d330 3
+d340 3
+d354 2
+d358 1
+a358 1
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "P#%d", target_port ) ;
+d371 1
+d375 1
+a375 1
+        strncpy( gStatus[wline][scol++], "Initial", MAXDEVSTR ) ;
+d416 1
+a416 1
+	snprintf( gStatus[wline][scol++], MAXDEVSTR, "#Cmds=%d", n_cmds ) ;
+d418 3
+a420 2
+	if( errors )
+	    snprintf( gStatus[wline][scol++], MAXDEVSTR, "E=%d", errors ) ;
+d428 1
+a428 1
+    DOLOG(0)(LOGDEV, "Should not be here: StartPeriodicTasks.\n" ) ;
+d432 1
+a432 1
+    DOLOG(0)(LOGDEV, "Should not be here: StopPeriodicTasks.\n" ) ;
+@
+
+
+1.7
+log
+@Working version. About to add setup and init via network.
+@
+text
+@a25 1
+    cycle = 100000 ; // 100.0 secs
+d29 2
+d35 1
+a35 1
+    errors = 0 ;
+d92 4
+d176 1
+a176 2
+    DisplayConnection() ;
+    return( true ) ;
+d181 1
+d187 11
+d207 2
+a208 1
+	    if( ! SetupDetails() ) continue ;
+d229 2
+a230 1
+	    client_state = 2 ;
+d233 1
+d235 1
+d237 2
+a242 2
+	    DOLOG(9)( LOGDEV, "%s: waiting for a transaction.\n", name ) ;
+	    // pthread_cond_wait( &sem_device, &mx_sem_device ) ;
+d244 1
+a245 2
+	    WaitOnSignal() ;
+	    DOLOG(9)( LOGDEV, "Saw a transaction request.\n" ) ;
+d247 1
+d251 1
+d260 2
+a261 1
+	    cmd_time = (tv_2.tv_usec - tv_1.tv_usec)/1000 + 
+d263 10
+a272 2
+	    DOLOG(6)(LOGDEV, "%s required %d ms (Conn=%s).\n", 
+		name, cmd_time, connection_good?"OK":"FAIL" ) ;
+d278 1
+a278 1
+int Client::HandleRequest( void )
+d284 1
+a284 1
+    DOLOG(0)( LOGDEV, "client request %s: <%s>\n", name, request ) ;
+d286 2
+a287 1
+    mQueue->SetResponse( NULL ) ;
+d289 2
+a290 2
+    sCmd s_cmd ;
+    TokenizeRequest( request, s_cmd ) ;
+d292 3
+a294 7
+    u_char t_request[1024] ;
+    strcpy( CP t_request, CP s_cmd.cmd[1] ) ;
+    for( int i = 2 ; i < 8 ; i++ ) {
+	if( ! s_cmd.cmd[i] ) break ;
+	strcat( CP t_request, " " ) ;
+	strcat( CP t_request, CP s_cmd.cmd[i] ) ;
+    }
+d296 10
+a305 1
+    FlushStream( fd ) ;
+d307 16
+a322 9
+    int nwrite = WriteStream( t_request, w_timeo ) ;
+    if( nwrite <= 0 ) return( false ) ;
+
+    u_char response[256] = "EMPTY" ;
+    int nread = ReadStream( response, sizeof(response), r_timeo ) ;
+    if( nread < 0 ) return( false ) ;
+    if( nread == 0 ) {
+	fprintf( stderr, "Timeout %s\n", name ) ;
+	errors++ ;
+d326 1
+a326 11
+    response[nread] = '\0' ;
+    strchomp( response ) ;
+
+    DOLOG(0)( LOGDEV, "client response %s: <<%s>>\n", name, response ) ;
+
+    StatusLog->Lock() ;
+    StatusLog->Write( name, "CMD", request ) ;
+    StatusLog->Write( name, "RTN", response ) ;
+    StatusLog->Unlock() ;
+    mQueue->SetResponse( response ) ;
+    return( true ) ;
+d358 1
+a358 1
+        strncpy( gStatus[wline][scol++], "Will Retry", MAXDEVSTR ) ;
+d388 3
+d397 1
+d400 10
+@
+
+
+1.6
+log
+@Working. Correct for crlf.
+@
+text
+@d26 1
+d34 1
+d88 3
+d193 1
+a193 1
+	    DOLOG(9)(LOGDEV, "Attempting connection.\n" ) ;
+d209 1
+a209 1
+	    DOLOG(9)(LOGDEV, "Sleep connection attempt.\n" ) ;
+d241 2
+d276 7
+a282 1
+    if( nread <= 0 ) return( false ) ;
+d359 2
+@
+
+
+1.5
+log
+@Working for CRISM config.
+@
+text
+@d290 1
+a290 1
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "Port=%d", target_port ) ;
+@
+
+
+1.4
+log
+@Working.
+@
+text
+@d32 1
+d214 2
+d224 2
+d227 2
+d234 2
+d343 4
+a346 1
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "#Cmds=%d", n_cmds ) ;
+@
+
+
+1.3
+log
+@Working. Supports SR630.
+@
+text
+@d22 2
+d27 6
+d130 2
+a131 1
+    uc_ip = UCP strndup( CP ip, 256 ) ;
+d182 1
+d184 1
+d188 1
+d206 1
+d214 4
+a217 1
+	    pthread_cond_wait( &sem_device, &mx_sem_device ) ;
+d219 2
+d226 1
+d240 2
+d258 1
+a258 1
+    u_char response[256] ;
+a260 1
+
+d276 1
+a276 6
+    u_char tmp_str[128] ;
+    struct timeval now ;
+    gettimeofday( &now, 0 ) ;
+    snprintf( CP tmp_str, 128, "<%s> = <%s> Clock=%d.%06d",
+	key, value, now.tv_sec, now.tv_usec );
+    OCF_Status->AddStatus( mStatus+w_status, tmp_str ) ;
+d279 57
+@
+
+
+1.2
+log
+@Modifying interface to allow timeouts using new
+stream i/o routines.
+@
+text
+@d22 4
+a41 1
+	fprintf( stderr, "key: %s / value: %s\n", parse.key, parse.value ) ;
+d57 3
+d63 3
+d71 6
+d83 1
+a83 1
+void Client::SetupDetails( void )
+d88 1
+a88 1
+	return ;
+d94 1
+a94 1
+	return ;
+d103 1
+a103 1
+	return ;
+d106 2
+a107 2
+    DOLOG(4)(LOGDEV, "Client %s socket: fd=%d proto=%d\n", 
+	name, fd, target_protocol );
+d120 1
+a120 1
+	return ;
+d126 1
+d154 13
+a171 2
+    SetupDetails() ;
+
+d174 2
+d179 2
+d183 3
+a185 3
+	    if( errno == EISCONN ) {
+		// Already connected? How? Assume the best.
+		break ;
+d187 3
+a189 1
+	    if( errno != ECONNREFUSED ) return ;
+d192 2
+d197 1
+a197 2
+	DisplayConnection() ;
+	connection_good = true ;
+d200 1
+a200 1
+	    DOLOG(0)( LOGDEV, "%s: waiting for something\n", name ) ;
+d202 6
+a207 2
+	    DOLOG(0)( LOGDEV, "Saw something\n" ) ;
+	    HandleRequest() ;
+d209 1
+a209 4
+
+	shutdown( fd, 2 ) ;
+	close( fd ) ;
+	fd = -1 ;
+d213 1
+a213 1
+void Client::HandleRequest( void )
+a230 1
+    strcat( CP t_request, "\r\n" ) ;
+d234 2
+a235 2
+    int nwrite = write( fd, t_request, strlen(CP t_request) ) ;
+    if( nwrite <= 0 ) { connection_good = false ; return ; }
+d238 2
+a239 2
+    int nread = read( fd, response, 256 ) ;
+    if( nread <= 0 ) { connection_good = false ; return ; }
+d251 11
+a261 4
+    mQueue->ReleaseWait() ;
+    if( ! mQueue->GetWaiting() ) {
+	mQueue->ReleaseThisTransaction() ;
+    }
+d263 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a9 2
+#define FILE_H_NEED (5)
+
+d17 1
+a17 1
+Client::Client( u_char *setup )
+a18 4
+    std::cout << "In Client constructor.\n" ;
+    std::cout << setup << std::endl ;
+    u_char w_tmp[2048] ;
+
+d21 2
+d24 6
+a29 1
+    if( ! setup ) return ;
+d41 1
+d46 1
+a46 1
+    std::cout << name << ": client being started up.\n" ;
+a47 2
+    // std::cerr << name << ": client has been started. 2 second wait.\n" ;
+    // sleep(2) ;
+d59 3
+d68 1
+a68 1
+void Client::RunThread( void )
+a69 3
+    if( ! port_set ) return ;
+    if( ! ip_set ) return ;
+
+a93 1
+    struct sockaddr_in sin ;
+d107 1
+a108 1
+    memset( (u_char*)&sin, 0, sizeof(sin) ) ;
+d111 1
+d113 2
+a114 8
+    status = connect( fd, (struct sockaddr*)&sin, sizeof(sin)) ;
+    if( status ) {
+        perror( "connect" ) ;
+	return ;
+        if( errno != EISCONN )
+            return ;
+    }
+
+d121 5
+a125 1
+    status = getsockname( fd, &localsock, &localsocklen ) ;
+d131 11
+a141 1
+            name, uc_target, ip, target_port, fd ) ;
+d143 32
+a174 6
+    while( 1 ) {
+	DOLOG(0)( LOGDEV, "%s: waiting for something\n", name ) ;
+	// sem_wait( &sem_device ) ;
+	pthread_cond_wait( &sem_device, &mx_sem_device ) ;
+	DOLOG(0)( LOGDEV, "Saw something\n" ) ;
+	HandleRequest() ;
+d184 13
+a196 1
+    DOLOG(0)( LOGDEV, "client request %s: ? %s %d\n", name, request, fd ) ;
+d200 2
+a201 2
+    int nwrite = write( fd, request, strlen(CP request) ) ;
+    nwrite = write( fd, "\r\n", 2 ) ;
+d205 11
+a215 2
+    nread = nread ;
+    DOLOG(0)( LOGDEV, "client response %s: ? %s %d\n", name, response, fd ) ;
+d218 3
+@

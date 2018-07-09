@@ -1,0 +1,16 @@
+chan1;tnom1,1.000;unit1,CENT;span1,0;ttyp1,T;tmax1,0.0000;tmin1,0.0000;alrm1,NO;scne1,NO;meas?1;
+chan2;tnom2,1.000;unit2,CENT;span2,0;ttyp2,T;tmax2,0.0000;tmin2,0.0000;alrm2,NO;scne2,NO;meas?2;
+chan3;tnom3,1.000;unit3,CENT;span3,0;ttyp3,T;tmax3,0.0000;tmin3,0.0000;alrm3,NO;scne3,NO;meas?3;
+chan4;tnom4,1.000;unit4,CENT;span4,0;ttyp4,T;tmax4,0.0000;tmin4,0.0000;alrm4,NO;scne4,NO;meas?4;
+chan5;tnom5,1.000;unit5,CENT;span5,0;ttyp5,T;tmax5,0.0000;tmin5,0.0000;alrm5,NO;scne5,NO;meas?5;
+chan6;tnom6,1.000;unit6,CENT;span6,0;ttyp6,T;tmax6,0.0000;tmin6,0.0000;alrm6,NO;scne6,NO;meas?6;
+chan7;tnom7,1.000;unit7,CENT;span7,0;ttyp7,T;tmax7,0.0000;tmin7,0.0000;alrm7,NO;scne7,NO;meas?7;
+chan8;tnom8,1.000;unit8,CENT;span8,0;ttyp8,T;tmax8,0.0000;tmin8,0.0000;alrm8,NO;scne8,NO;meas?8;
+chan9;tnom9,1.000;unit9,CENT;span9,0;ttyp9,T;tmax9,0.0000;tmin9,0.0000;alrm9,NO;scne9,NO;meas?9;
+chan10;tnom10,1.000;unit10,CENT;span10,0;ttyp10,T;tmax10,0.0000;tmin10,0.0000;alrm10,NO;scne10,NO;meas?10;
+chan11;tnom11,1.000;unit11,CENT;span11,0;ttyp11,T;tmax11,0.0000;tmin11,0.0000;alrm11,NO;scne11,NO;meas?11;
+chan12;tnom12,1.000;unit12,CENT;span12,0;ttyp12,T;tmax12,0.0000;tmin12,0.0000;alrm12,NO;scne12,NO;meas?12;
+chan13;tnom13,1.000;unit13,CENT;span13,0;ttyp13,T;tmax13,0.0000;tmin13,0.0000;alrm13,NO;scne13,NO;meas?13;
+chan14;tnom14,1.000;unit14,DC;span14,0;ttyp14,T;tmax14,0.0000;tmin14,0.0000;alrm14,NO;scne14,NO;meas?14;
+chan15;tnom15,1.000;unit15,DC;span15,0;ttyp15,T;tmax15,0.0000;tmin15,0.0000;alrm15,NO;scne15,NO;meas?15;
+chan16;tnom16,1.000;unit16,DC;span16,0;ttyp16,T;tmax16,0.0000;tmin16,0.0000;alrm16,NO;scne16,NO;meas?16;

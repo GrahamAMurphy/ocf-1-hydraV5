@@ -1,0 +1,564 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.9;
+
+1.9
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.07.22.18.34.23;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.11.02.35.12;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working. Supports SR630.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "filterwheel.h"
+#include "support.h"
+#include "periodic.h"
+
+FilterWheel::FilterWheel( void )
+{
+    devtype = TypeFilterWheel ;
+    devtypestring = "Filter Wheel" ;
+    cycle = 100000 ; // 100.0 secs
+    delay = 5000 ; // 5.0 secs
+    fw_state = fw_goal = -1 ;
+    DODBG(9)(DBGDEV, "Leaving filterwheel constructor.\n" ) ; 
+}
+
+void FilterWheel::StartOps( void )
+{
+    DODBG(9)(DBGDEV, "%s: FilterWheel being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( 1 ) ; // One key state.
+
+    u_char temp[256] ;
+    snprintf( CP temp, 256, "%s get", getAlias() ) ;
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp ) ;
+
+    StartThread() ;
+}
+
+void FilterWheel::StartPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->SetPeriod( mPeriodics[i], cycle ) ;
+	PeriodicQ->Schedule( mPeriodics[i], delay ) ;
+	PeriodicQ->Enable( mPeriodics[i] ) ;
+    }
+}
+
+void FilterWheel::StopPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->Disable( mPeriodics[i] ) ;
+    }
+}
+
+int FilterWheel::DeviceOpen( void )
+{
+    StartPeriodicTasks() ;
+    return( true ) ;
+}
+
+void FilterWheel::DeviceClose( void )
+{
+    StopPeriodicTasks() ;
+}
+
+int FilterWheel::UpdateFWState( FW_state_select FW_select, u_char *a_string )
+{
+    int retval = true ;
+
+    int new_state = -1 ;
+    int nscan = sscanf( CP a_string, "%*s %d", &new_state ) ;
+    if( nscan != 1 )
+	return( false ) ;
+
+    if( FW_select == FW_state ) {
+	int rx_state = new_state ;
+	if( rx_state >= 0 && rx_state <= 6 ) {
+	    fw_state = rx_state ; 
+	} else {
+	    retval = false ;
+	}
+    } else {
+	int tx_goal = new_state ;
+	if( tx_goal >= 0 && tx_goal <= 6 ) {
+	    fw_goal = tx_goal ;
+	}
+    }
+    return( retval ) ;
+}
+
+#define NOSTATUS	NoStatus(0)
+
+// Only returns false if we deem a communication error demands or implies
+// a disconnect.
+int FilterWheel::AddressFilter( u_char *resp, int mlen )
+{
+    u_char command[256] ;
+    u_char tmp[256] ;
+
+    if( client_cmd.nCmds==2 && STRCASECMP( client_cmd.cmd[1], "get" ) == 0 ) {
+	int nexc = Exchange( UCP "?FILTER", w_timeo, tmp, sizeof(tmp), r_timeo);
+	if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false); }
+	if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen); return( true ) ; }
+
+	if( UpdateFWState( FW_state, tmp ) ) {
+	    snprintf( CP resp, mlen, "%d", fw_state ) ;
+	    AddStatus( 0, UCP "Position", resp ) ;
+	} else {
+	    SET_409_BADRESP(resp,mlen,tmp) ;
+	    NOSTATUS ;
+	    errors++ ;
+	}
+	return( true ) ;
+    }
+
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[1], "goto" ) == 0 ) {
+	UpdateFWState( FW_goal, client_cmd.cmd[2] ) ;
+
+	snprintf( CP command, sizeof(command), "%s FILTER", client_cmd.cmd[2] );
+
+	// The filter wheel doesn't ack, so we provide a very short
+	// timeout just in case some error occured, and then ignore the
+	// nread.
+	int nexc = Exchange( command, w_timeo, resp, mlen, -r_timeo ) ;
+	if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; } 
+	if( nexc == 0 ) { SET_105_DEVTO(resp,mlen) ; return( true ) ; } 
+
+	return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[1] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", 
+	client_cmd.cmd[1], name ) ;
+    return( true ) ;
+}
+
+int FilterWheel::HandleRequest( void )
+{
+    if( Client::HandleRequest() )
+        return( true ) ;
+
+    if( client_cmd.nCmds < 2 ) {
+	DODBG(0)(DBGDEV, "Null command: %s\n", client_cmd.cmd[1] ) ;
+	mQueue->SetResponse( ERR_408_BADCMD ) ;
+	return( true ) ;
+    }
+
+    u_char response[256] ;
+
+    int retval = AddressFilter( response, sizeof(response) ) ;
+    mQueue->SetResponse( response ) ;
+    DODBG(0)( DBGDEV, "Response of %s: <%s>\n", name, response ) ;
+    StatusLog->L_Command_U( name, mQueue->GetRequest(), response ) ;
+    return( retval ) ;
+}
+
+static const char* cClientOptions[] = {
+    "get",
+    "goto %d"
+    } ;
+
+int FilterWheel::ListOptions( int iN, u_char *cOption, int iOptionLength )
+{
+    int M = 0 ;
+    strcpy( CP cOption, "" ) ;
+
+    int iMax = sizeof(cClientOptions)/sizeof(char*) ;
+
+    if( 0 <= iN && iN < iMax ) {
+        strncpy( CP cOption, cClientOptions[iN], iOptionLength ) ;
+	M = strlen( CP cOption ) ;
+    } else {
+	M = Client::ListOptions( iN-iMax, cOption, iOptionLength ) ;
+    }
+    return( M ) ;
+}
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.9
+log
+@Working system. Backing up.
+@
+text
+@d72 5
+d78 1
+a78 1
+	int rx_state = strtol( CP a_string, 0, 0 ) ;
+d85 1
+a85 1
+	int tx_goal = strtol( CP a_string, 0, 0 ) ;
+d157 21
+@
+
+
+1.8
+log
+@Working version.
+@
+text
+@d74 1
+a74 1
+	if( rx_state >= 1 && rx_state <= 6 ) {
+d81 1
+a81 1
+	if( tx_goal >= 1 && tx_goal <= 6 ) {
+d106 1
+a106 1
+	    SET_409_BADRESP(resp,mlen) ;
+@
+
+
+1.7
+log
+@Working Version. SRS630 included.
+@
+text
+@d88 2
+d97 1
+a97 1
+    if( strcasecmp( CP client_cmd.cmd[1], "get" ) == 0 ) {
+d99 2
+a100 2
+	if( nexc < 0 ) { SET_406_BADCON(resp,mlen) ; return( false ) ; }
+	if( nexc == 0 ) { SET_407_DEVTO(resp,mlen) ; return( true ) ; }
+d107 1
+a109 1
+
+d113 1
+a113 1
+    if( client_cmd.cmd[2] && strcasecmp( CP client_cmd.cmd[1], "goto" ) == 0 ) {
+d139 6
+a145 1
+    mQueue->SetResponse( 0 ) ;
+a150 1
+
+@
+
+
+1.6
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d93 1
+d96 1
+a96 1
+	int nexc = Exchange( UCP "?FILTER", w_timeo, resp, mlen, r_timeo ) ;
+d100 2
+a101 1
+	if( UpdateFWState( FW_state, resp ) )
+d103 2
+a104 1
+	else
+d106 1
+@
+
+
+1.5
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@a20 2
+    r_timeo = 1000 ; // 1.0 secs
+    w_timeo = 5000 ; // 5.0 secs
+d23 2
+a24 1
+    cycle = 10000 ; // 10.0 secs
+d26 1
+a26 1
+    DOLOG(9)(LOGDEV, "Leaving filterwheel constructor.\n" ) ; 
+d31 1
+a31 1
+    DOLOG(9)(LOGDEV, "%s: FilterWheel being started up.\n", name ) ;
+d96 2
+a97 1
+	if( nexc <= 0 ) return( (nexc==0) ) ;
+d107 1
+a107 3
+    if( ! client_cmd.cmd[2] ) return( true ) ;
+
+    if( strcasecmp( CP client_cmd.cmd[1], "set" ) == 0 ) {
+d115 3
+a117 2
+	int nexc = Exchange( command, w_timeo, resp, mlen, -250 ) ;
+	if( nexc < 0 ) return( false ) ;
+d122 3
+a124 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", client_cmd.cmd[1] ) ;
+d134 1
+d136 3
+a138 5
+    if( ! AddressFilter( response, sizeof(response) ) )
+	return( false ) ;
+
+    DOLOG(0)( LOGDEV, "Response of %s: <<%s>>\n", name, response ) ;
+
+a139 1
+    mQueue->SetResponse( response ) ;
+d141 1
+a141 1
+    return( true ) ;
+@
+
+
+1.4
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d37 1
+a37 1
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp, cycle ) ;
+d42 1
+a42 1
+int FilterWheel::ConnectionStarted( void )
+a43 2
+    DisplayConnection() ;
+
+d45 2
+a46 1
+	PeriodicQ->Schedule( mPeriodics[i], cycle/2 + 1000*(i + 2*getDevice()));
+a48 1
+    return( true ) ;
+d51 1
+a51 1
+void FilterWheel::ConnectionEnded( void )
+d56 11
+a66 1
+    Client::ConnectionEnded() ;
+d91 1
+a91 1
+int FilterWheel::AddressFilter( sCmd input, u_char *resp, int mlen )
+a93 2
+    int nwrite ;
+    int nread ;
+d95 3
+a97 2
+    FlushStream( fd ) ;
+    *resp = '\0' ;
+a98 12
+    if( strcasecmp( CP input.cmd[1], "get" ) == 0 ) {
+	nwrite = WriteStream( UCP "?FILTER", w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( resp, mlen, r_timeo ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+
+	strchomp( resp ) ;
+d107 1
+a107 1
+    if( ! input.cmd[2] ) return( true ) ;
+d109 2
+a110 2
+    if( strcasecmp( CP input.cmd[1], "set" ) == 0 ) {
+	UpdateFWState( FW_goal, input.cmd[2] ) ;
+d112 1
+a112 3
+	snprintf( CP command, sizeof(command), "%s FILTER", input.cmd[2] ) ;
+	nwrite = WriteStream( command, w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+d117 3
+a119 7
+	nread = ReadStream( resp, mlen, 250 ) ; // 250 ms.
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+d123 1
+a123 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", input.cmd[1] ) ;
+d129 2
+a130 1
+    u_char response[256] = "EMPTY" ;
+d132 1
+a132 13
+    const u_char *request ;
+    mQueue->GetNextTransaction() ;
+
+    request = mQueue->GetRequest() ;
+    DOLOG(0)( LOGDEV, "client request %s: <%s>\n", name, request ) ;
+
+    mQueue->SetResponse( NULL ) ;
+
+    sCmd s_cmd ;
+    int ncmds = TokenizeRequest( request, s_cmd ) ;
+    if( ncmds < 2 ) {
+	return( true ) ; // null or pointless command, but not an error.
+    }
+d134 1
+a134 1
+    if( ! AddressFilter( s_cmd, response, sizeof(response) ) )
+d137 1
+a137 1
+    DOLOG(0)( LOGDEV, "client response %s: <<%s>>\n", name, response ) ;
+d139 1
+a139 4
+    StatusLog->Lock() ;
+    StatusLog->Write( name, "CMD", request ) ;
+    StatusLog->Write( name, "RTN", response ) ;
+    StatusLog->Unlock() ;
+@
+
+
+1.3
+log
+@Working. Correct for crlf.
+@
+text
+@d25 2
+d37 1
+a37 1
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp, 5000 ) ;
+d47 1
+a47 1
+	PeriodicQ->Schedule( mPeriodics[i], 10000 + 3000*i + 7000*getDevice() );
+d61 20
+d96 7
+a102 1
+	if( nread <= 0 ) return( false ) ;
+d104 5
+a108 1
+	AddStatus( 0, UCP "Position", resp ) ;
+d115 2
+d120 11
+a130 4
+	/*
+	nread = ReadStream( resp, mlen, r_timeo ) ;
+	if( nread <= 0 ) return( false ) ;
+	*/
+a168 1
+
+@
+
+
+1.2
+log
+@Working.
+@
+text
+@d35 1
+a35 1
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp, 10000 ) ;
+d45 1
+a45 1
+	PeriodicQ->Schedule( mPeriodics[i], 10000 + 3000*i ) ;
+d86 1
+d89 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d23 2
+a24 1
+    nPeriodics = 1 ;
+d61 1
+a61 1
+int FilterWheel::ConfrontFilter( sCmd input, u_char *resp, int mlen )
+d76 1
+a76 1
+	AddStatus( 0, input.cmd[0], resp ) ;
+d97 1
+a97 1
+    u_char response[256] ;
+d113 1
+a113 1
+    if( ! ConfrontFilter( s_cmd, response, sizeof(response) ) )
+@

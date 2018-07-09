@@ -1,0 +1,1013 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.12;
+
+1.12
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.11;
+
+1.11
+date	2004.08.03.20.18.51;	author murphy;	state Exp;
+branches;
+next	1.10;
+
+1.10
+date	2004.07.13.13.10.21;	author murphy;	state Exp;
+branches;
+next	1.9;
+
+1.9
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.11.02.35.12;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.11.54.25;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Generic object to handle i/o along almost any path.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#define FILE_H_NEED (2)
+
+#pragma implementation
+
+#include <iostream>
+#include <unistd.h>
+#include <string.h>
+#include <errno.h>
+
+#include "global.h"
+#include "queue.h"
+#include "stream.h"
+#include "support.h"
+	#include "client.h"
+
+Stream::Stream()
+{
+    name = UCP "No name" ;
+
+    int i ;
+    for( i = 0 ; i < MAXALIASES ; i++ ) alias[i] = 0 ;
+    m_t_thread = 0 ;
+
+    tx_pnt = 0 ;
+    rx_pnt = 0 ;
+    fd = -1 ;
+    devicenum = -1 ;
+    devtype = TypeNone ;
+    devtypestring = "Unspecified" ;
+    r_timeo = 30000 ; // 30.0 secs
+    w_timeo = 30000 ; // 30.0 secs
+    enabled = true ;
+    mStatus = 1000 ;
+    stream_state = 0 ;
+    errors = 0 ;
+    cycle = 1000000000 ;
+    delay = -1 ;
+    l_errno = 0 ;
+    last_rx_timedout = false ;
+    flush_after_timeout = false ;
+    can_report = true ;
+
+    mQueue = 0 ;
+    is_a_client = false ;
+    is_a_server = false ;
+
+//  Device server standard of CR-LF for all output.
+    iOutputTermS = 0 ;
+    iOutputTermL = 2 ;
+
+    iInputTermS = 0 ;
+    iInputTermL = 2 ;
+
+    DODBG(9)(DBGDEV, "Exiting stream constructor.\n" ) ;
+}
+
+Stream::~Stream()
+{
+// General purpose base destructor ... no implementation details since life is 
+// way too complex.
+}
+
+int Stream::SetOptions( u_char* setup )
+{
+    DODBG(9)(DBGDEV, "%s: %s\n", name, setup ) ;
+    u_char w_tmp[2048] ;
+    int n_parsed = 0 ;
+
+    if( ! setup ) return( true ) ;
+
+    strncpy( CP w_tmp, CP setup, 2048 ) ;
+
+    sParse parse = { w_tmp, 0, 0 } ;
+
+    while( true ) {
+        bool state = GenericParser( parse, UCP ",", UCP "=" ) ;
+        if( ! state ) break ;
+        if( ! Parse( parse.key, parse.value ) ) return( false ) ;
+	n_parsed++ ;
+    }
+
+    return( n_parsed ) ;
+}
+
+int Stream::Parse( u_char *key, u_char *value )
+{
+    if( strcasecmp( CP key, "output-termination" ) == 0 ) {
+        if( strcasecmp( CP value, "cr" ) == 0 ) {
+	    iOutputTermS = 0 ;
+	    iOutputTermL = 1 ;
+	} else if( strcasecmp( CP value, "cr-lf" ) == 0 ) {
+	    iOutputTermS = 0 ;
+	    iOutputTermL = 2 ;
+	} else if( strcasecmp( CP value, "lf" ) == 0 ) {
+	    iOutputTermS = 1 ;
+	    iOutputTermL = 1 ;
+	} else if( strcasecmp( CP value, "lf-cr" ) == 0 ) {
+	    iOutputTermS = 1 ;
+	    iOutputTermL = 2 ;
+	} else if( strcasecmp( CP value, "none" ) == 0 ) {
+	    iOutputTermS = 0 ;
+	    iOutputTermL = 0 ;
+	}
+	return( true ) ;
+    } else if( strcasecmp( CP key, "input-termination" ) == 0 ) {
+        if( strcasecmp( CP value, "cr" ) == 0 ) {
+	    iInputTermS = 0 ;
+	    iInputTermL = 1 ;
+	} else if( strcasecmp( CP value, "cr-lf" ) == 0 ) {
+	    iInputTermS = 0 ;
+	    iInputTermL = 2 ;
+	} else if( strcasecmp( CP value, "lf" ) == 0 ) {
+	    iInputTermS = 1 ;
+	    iInputTermL = 1 ;
+	} else if( strcasecmp( CP value, "lf-cr" ) == 0 ) {
+	    iInputTermS = 1 ;
+	    iInputTermL = 2 ;
+	} else if( strcasecmp( CP value, "none" ) == 0 ) {
+	    iInputTermS = 0 ;
+	    iInputTermL = 0 ;
+	}
+	return( true ) ;
+    }
+
+
+    return( false ) ;
+}
+
+void Stream::setName( const u_char *in_name )
+{
+    name = (u_char*) strdup( (char*)in_name ) ;
+}
+
+void Stream::setAlias( u_char *in_alias )
+{
+    int i ;
+    for( i = MAXALIASES ; i > 1 ; i-- ) {
+	alias[i-1] = alias[i-2] ;
+    }
+    alias[0] = (u_char*) strdup( (char*)in_alias ) ;
+}
+
+const u_char *Stream::getAlias( int iSelect = 0 )
+{
+    if( iSelect < MAXALIASES )
+	return( alias[iSelect] ) ;
+    else
+	return( 0 ) ;
+}
+
+const char* Stream::getTypeString( void )
+{
+    return( devtypestring ) ;
+}
+
+void Stream::StartOps( void ) 
+{
+    DODBG(9)(DBGDEV, "In start ops: %d\n", devicenum ) ;
+}
+
+void Stream::StopOps( void ) 
+{
+    DODBG(9)(DBGDEV, "In stop ops: %d\n", devicenum ) ;
+    if( m_t_thread )
+	pthread_cancel( m_t_thread ) ;
+    m_t_thread = 0 ;
+}
+
+void Stream::PleaseReport( int wline, int scol )
+{
+    for( int i = scol ; i < MAXITEM ; i++ )
+	snprintf( gStatus[wline][i], MAXDEVSTR, "Col%d", i ) ;
+}
+
+void Stream::RunThread( void )
+{
+    while( 1 ) {
+	DODBG(9)(DBGDEV, "In a dummy running thread for %s\n", name ) ;
+	sleep(5) ;
+    }
+}
+
+void Stream::StartThread( void )
+{
+    pthread_attr_t t_attribute ;
+
+    DODBG(9)(DBGDEV, "%s: about to create thread.\n", name ) ;
+    pthread_attr_init( &t_attribute ) ;
+    pthread_create( &m_t_thread, &t_attribute, RunObjectInThread, (void*)&devicenum ) ;
+    DODBG(9)(DBGDEV, "%s: created thread.\n", name ) ;
+}
+
+
+// This is generic.
+
+void * RunObjectInThread( void *v_w_device )
+{
+    int *w_device = static_cast<int *>(v_w_device) ;
+
+    DODBG(5)( DBGDEV, "In RunObjectInThread.\n" ) ;
+    if( w_device && streams[*w_device] ) {
+	streams[*w_device]->RunThread() ;
+    } else {
+	DODBG(0)( DBGDEV, "Failed in RunObjectInThread.\n" ) ;
+    }
+    return( 0 ) ;
+}
+
+bool Stream::Active( void )
+{
+    return( enabled && (fd >= 0) ) ;
+}
+
+void Stream::WaitOnSignal( void )
+{
+    DODBG(9)(DBGDEV, "Waiting %s\n", name ) ;
+    sem_wait( &sem_device ) ;
+    DODBG(9)(DBGDEV, "Released %s\n", name ) ;
+}
+
+void Stream::ClearWait( void )
+{
+    DODBG(9)(DBGDEV, "Clearing Wait ... %s\n", name ) ;
+    for( int i = 0 ; i < 100 ; i++ )
+	if( sem_trywait( &sem_device ) ) break ;
+    DODBG(9)(DBGDEV, "... done.\n" ) ;
+}
+
+void Stream::SignalDevice( void )
+{
+    DODBG(9)(DBGDEV, "Signalling %s\n", name ) ;
+    sem_post( &sem_device ) ;
+}
+
+int Stream::GetRxTimedOut( void )
+{
+    return( last_rx_timedout && flush_after_timeout ) ;
+}
+
+int Stream::Exchange( const void *v_out, int wtimeo,
+    u_char *in, int maxin, int rtimeo )
+{
+    bool flag_time_o = true ;
+    if( rtimeo < 0 ) {
+	rtimeo = -rtimeo ;
+	flag_time_o = false ;
+    }
+
+    int nexc = DoExchange( v_out, wtimeo, in, maxin, rtimeo ) ;
+    if( nexc < 0 ) return( nexc ) ;
+
+    if( nexc > 0 ) {
+	if( GetRxTimedOut() ) {
+	    DODBG(0)(DBGDEV, "Read of %s following timeout flushed.\n", name ) ;
+	    nexc = 0 ;
+	}
+	ResetRxTimedOut() ;
+	return( nexc ) ;
+    }
+
+    if( flag_time_o ) {
+	DODBG(0)(DBGDEV, "Unexpected timeout reading from %s.\n", name ) ;
+	SetRxTimedOut() ;
+	errors++ ;
+    }
+    return( 0 ) ;
+}
+
+int Stream::DoExchange( const void *v_out, int wtimeo, u_char *in, int maxin, int rtimeo )
+{
+    if( in ) *in = '\0' ;
+
+    if( ! FlushStream( fd ) ) return( -1 ) ; // This is grounds for disconnect.
+
+    const u_char *out = (const u_char*)v_out ;
+
+    DODBG(7)(DBGDEV, "%s write: %s\n", name, out ) ;
+    int nwrite = WriteStream( out, wtimeo ) ;
+    if( nwrite <= 0 ) return( -1 ) ; // This is grounds for disconnecting.
+
+    if( ! in )
+	// Nothing to read into, so just return.
+	// Return a fake "1" so that we don't trigger an error response.
+	return( 1 ) ; 
+
+    int nread = ReadStream( in, maxin, rtimeo ) ;
+    if( nread <= 0 ) return( nread ) ;
+
+    // This must be true by virtue of our protocol with labview!
+    // if( in[nread-2] == '\r' ) in[nread-2] = '\0' ;
+    // in[nread-1] = '\0' ;
+
+    DODBG(7)(DBGDEV, "%s read: Bytes=%d <%s>\n", name, nread, in ) ;
+    if( nread >= 5 && strncasecmp( CP in, "ERR 4", 5 ) == 0 ) {
+	DODBG(0)(DBGDEV, "Labview returned %s for %s\n", in, name ) ;
+	if( strncasecmp( CP in, "ERR 431", 7 ) == 0 ) {
+	    fprintf( stderr, "Device server says device not active: %s\n", name ) ;
+	    return( -1 ) ;
+	}
+	// fprintf( stderr, "Labview returned timeout for %s\n", name ) ;
+	return( 0 ) ;
+    }
+
+    return( nread ) ;
+}
+
+int Stream::WriteStream( const u_char *out, int timeo )
+{
+    int maxs = fd + 1 ;
+    struct timeval timeout = { 0, 0 } ;
+    fd_set outmask ;
+    int o_len = 0 ;
+    int nwrite ;
+
+    stream_state = 1 ;
+
+    if( out ) o_len = strlen( CP out ) ;
+
+    if( o_len > 0 ) {
+	nwrite = write( fd, CP out, o_len ) ;
+	if( nwrite <= 0 ) {
+	    perror( CP name ) ;
+	    return( -1 ) ;
+	}
+    }
+
+    if( iOutputTermL > 0 ) {
+	nwrite = write( fd, OUTPUT_TERMINATION + iOutputTermS, iOutputTermL ) ;
+	if( nwrite <= 0 ) {
+	    perror( CP name ) ;
+	    return( -1 ) ;
+	}
+    }
+
+    FD_ZERO(&outmask) ;
+    FD_SET( fd, &outmask ) ;
+
+    if( timeo <= 0 ) timeo = 1 ;
+    timeout.tv_sec = timeo / 1000 ;
+    timeout.tv_usec = (1000*timeo) % 1000000 ;
+
+    stream_state = 2 ;
+
+    int nselect = 0 ;
+    while( 1 ) {
+	nselect = select( maxs, NULL, &outmask, NULL, &timeout ) ;
+	if( nselect < 0 && errno == EINTR ) continue ;
+	if( nselect == 1 ) {
+	    DODBG(9)(DBGDEV, "Write to %s was successful.\r\n", name ) ;
+	    stream_state = 3 ;
+	    return( 1 ) ;
+	}
+	if( nselect == 0 ) {
+	    DODBG(0)(DBGDEV, "Write to %s timed out.\r\n", name ) ;
+	    // This should get trapped as it is indicates a bad connection.
+	    return( 0 ) ;
+	}
+	l_errno = errno ;
+	perror( CP name ) ;
+	return( -1 ) ;
+    }
+}
+
+int Stream::ReadStream( u_char *in, int maxin, int timeo )
+{
+    int maxs = fd + 1 ;
+    struct timeval timeout = { 0, 0 } ;
+    struct timeval now, then ;
+    fd_set inmask ;
+    int pnt = 0 ;
+
+    FD_ZERO(&inmask) ;
+
+    if( timeo <= 0 ) {
+	timeout.tv_sec = 10000000 ;
+	timeout.tv_usec = 0 ;
+    } else {
+	timeout.tv_sec = timeo / 1000 ;
+	timeout.tv_usec = (1000*timeo) % 1000000 ;
+    }
+
+    gettimeofday( &now, 0 ) ;
+    TimerAdd( then, now, timeout ) ;
+
+    stream_state = 4 ;
+
+    while( true ) {
+	FD_SET( fd, &inmask ) ;
+	timeout.tv_sec = 0 ;
+	timeout.tv_usec = 100000 ;
+
+	gettimeofday( &now, 0 ) ;
+
+	/*
+	need to come up with mode that doesn't add cr-lf to every command!!!
+	need new mode that doesn't require cr-lf in every response!!
+	*/
+
+	if( timer_cmp( now, >, then ) ) {
+	    if( iInputTermL > 0 ) {
+		DODBG(1)(DBGDEV, "In ReadStream: timeout.\r\n" ) ;
+		return( 0 ) ; // a timeout will be a special case - nothing read.
+	    } else {
+		stream_state = 5 ;
+		in[pnt] = '\0' ;
+		return( pnt ) ;
+	    }
+	}
+
+	int nselect = 0 ;
+	while( 1 ) {
+	    nselect = select( maxs, &inmask, NULL, NULL, &timeout ) ;
+	    if( nselect < 0 && errno == EINTR ) continue ;
+	    if( nselect < 0 ) {
+		l_errno = errno ;
+		perror( CP name ) ;
+		return( -1 ) ;
+	    }
+	    break ;
+	}
+
+	if( nselect == 0 ) continue ;
+
+	if( FD_ISSET(fd,&inmask) ) {
+	    int nread = read( fd, in+pnt, 1 ) ;
+	    if( nread < 0 ) {
+		l_errno = errno ;
+		perror( CP name ) ;
+		stream_state = 5 ;
+		return( -1 ) ;
+	    } 
+	    
+	    if( nread == 0 ) continue ; // shouldn't happen, right?
+	    // fprintf( stderr, "%02x(%d)[%c]", in[pnt], pnt, in[pnt] ) ;
+
+	    pnt++ ;
+
+	    if( pnt >= iInputTermL && iInputTermL > 0 ) {
+		int iq ;
+		int im = pnt - iInputTermL ;
+		bool iOK = true ;
+
+		for( iq = 0 ; iq < iInputTermL ; iq++, im++ ) {
+		    if( in[im] == INPUT_TERMINATION[iInputTermS+iq] ) continue ;
+		    iOK = false ; 
+		    break ;
+		}
+
+		if( iOK ) {
+		    stream_state = 5 ;
+		    im = pnt - iInputTermL ;
+
+		    for( iq = 0 ; iq < iInputTermL ; iq++, im++ ) {
+			in[im] = '\0' ;
+		    }
+
+		    return( pnt ) ;
+		}
+	    }
+
+	    if( pnt >= maxin ) {
+		in[pnt] = '\0' ;
+		stream_state = 5 ;
+		return( pnt ) ;
+	    }
+	}
+    }
+} 
+
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.12
+log
+@Working system. Backing up.
+@
+text
+@d19 5
+a23 1
+    alias = 0 ;
+d30 2
+a31 2
+    r_timeo = 30000 ; // 1.0 secs
+    w_timeo = 30000 ; // 1.0 secs
+d47 7
+d87 39
+d129 1
+a129 1
+void Stream::setName( u_char *in_name )
+d136 13
+a148 2
+    if( ! alias )
+	alias = (u_char*) strdup( (char*)in_alias ) ;
+a155 3
+void Stream::HandleRx( void ) {} ;
+void Stream::HandleTx( void ) {} ;
+
+d161 8
+d189 1
+a189 3
+
+    pthread_create( &m_t_thread, &t_attribute, RunObjectInThread, 
+	(void*)&devicenum ) ;
+d200 1
+a200 1
+    DODBG(0)( DBGDEV, "In RunObjectInThread.\n" ) ;
+a253 1
+	    fprintf( stderr, "Read of %s following timeout flushed.\n", name ) ;
+a261 1
+	fprintf( stderr, "Unexpected timeout reading from %s.\n", name ) ;
+d269 1
+a269 2
+int Stream::DoExchange( const void *v_out, int wtimeo,
+    u_char *in, int maxin, int rtimeo )
+a285 9
+#if 0
+    static int howmany = 0 ;
+    howmany++ ;
+    fprintf( stderr, "state = %d\n", howmany ) ;
+    if( howmany >= 400 ) {
+	exit(0) ;
+    }
+#endif
+
+d290 1
+a290 1
+    if( in[nread-2] == '\r' ) in[nread-2] = '\0' ;
+d295 1
+a295 1
+	DODBG(0)(DBGDEV, "Labview returned %s for %s\n", name, in ) ;
+d297 1
+a297 1
+	    fprintf( stderr, "Labview says device not active: %s\n", name ) ;
+d327 6
+a332 4
+    nwrite = write( fd, "\r\n", 2 ) ;
+    if( nwrite <= 0 ) {
+	perror( CP name ) ;
+	return( -1 ) ;
+d344 17
+a360 10
+    int nselect = select( maxs, NULL, &outmask, NULL, &timeout ) ;
+    if( nselect == 1 ) {
+	DODBG(9)(DBGDEV, "Write to %s was successful.\r\n", name ) ;
+	stream_state = 3 ;
+	return( 1 ) ;
+    }
+    if( nselect == 0 ) {
+	DODBG(0)(DBGDEV, "Write to %s timed out.\r\n", name ) ;
+	// This should get trapped as it is indicates a bad connection.
+	return( 0 ) ;
+a361 3
+    l_errno = errno ;
+    perror( CP name ) ;
+    return( -1 ) ;
+d394 5
+d400 8
+a407 2
+	    DODBG(11)(DBGDEV, "In ReadStream: timeout.\r\n" ) ;
+	    return( 0 ) ; // a timeout will be a special case - nothing read.
+d410 10
+a419 5
+	int nselect = select( maxs, &inmask, NULL, NULL, &timeout ) ;
+	if( nselect < 0 ) {
+	    l_errno = errno ;
+	    perror( CP name ) ;
+	    return( -1 ) ;
+d421 1
+d434 3
+a436 1
+	    // fprintf( stderr, "%02x(%d)", in[pnt], pnt ) ;
+d438 21
+a458 4
+	    if( in[pnt-1] == '\r' && in[pnt] == '\n' ) {
+		in[pnt+1] = '\0' ;
+		stream_state = 5 ;
+		return( pnt+1 ) ;
+a460 1
+	    pnt++ ;
+d462 1
+a462 1
+		in[pnt-1] = '\0' ;
+@
+
+
+1.11
+log
+@Removing flush after timeout option.
+@
+text
+@d14 1
+a19 5
+    lCanRead = false ;
+    lCanWrite = false ;
+    gCanRead = false ;
+    gCanWrite = false ;
+    txpending = false ;
+d35 2
+a36 1
+    timeout_state = 0 ;
+d46 6
+d162 1
+a162 1
+    DODBG(9)(DBGDEV, "... done.\n", name ) ;
+d171 1
+a171 1
+void Stream::ResetTimeoutState( void )
+d173 1
+a173 1
+    timeout_state = 0 ;
+d179 31
+a219 6
+    bool flag_time_o = true ;
+    if( rtimeo < 0 ) {
+	rtimeo = -rtimeo ;
+	flag_time_o = false ;
+    }
+
+d225 8
+a232 1
+    timeout_state++ ;
+d235 1
+a235 11
+    if( nread < 0 ) return( nread ) ;
+    if( nread == 0 ) {
+	if( flag_time_o ) {
+	    fprintf( stderr, "Unexpected timeout reading %s\n", name ) ;
+	    DODBG(0)(DBGDEV, "Unexpected timeout reading %s\n", name ) ;
+	    errors++ ;
+	} else {
+	    ResetTimeoutState() ;
+	}
+	return( 0 ) ;
+    }
+a248 2
+	if( ! flag_time_o )
+	    ResetTimeoutState() ; // we expected this so don't overreact.
+a251 8
+    timeout_state-- ;
+
+    if( timeout_state ) {
+	DODBG(0)(DBGDEV, "First read after timeout rejected: %s\n", name ) ;
+	fprintf( stderr, "First read after timeout rejected: %s\n", name ) ;
+	ResetTimeoutState() ;
+	return( 0 ) ;
+    }
+@
+
+
+1.10
+log
+@Minor change to http size.
+@
+text
+@d42 4
+a45 2
+    sem_init( &sem_device, 0, 0 ) ;
+    mQueue = new Queue() ;
+@
+
+
+1.9
+log
+@Working Version. SRS630 included.
+@
+text
+@d221 1
+a221 1
+	fprintf( stderr, "Labview returned timeout for %s\n", name ) ;
+@
+
+
+1.8
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d40 1
+d49 23
+a71 2
+    DODBG(0)(DBGDEV, "%s: Should never be here: %s\n", name, setup ) ;
+    exit(0) ;
+d166 5
+d204 2
+d222 2
+d232 1
+a232 1
+	timeout_state = 0 ;
+d359 1
+@
+
+
+1.7
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d30 2
+a31 2
+    r_timeo = 1000 ; // 1.0 secs
+    w_timeo = 1000 ; // 1.0 secs
+d39 1
+d43 1
+a43 1
+    DOLOG(9)(LOGDEV, "Exiting stream constructor.\n" ) ;
+d48 1
+a48 1
+    DOLOG(0)(LOGDEV, "%s: Should never be here: %s\n", name, setup ) ;
+d73 1
+a73 1
+    DOLOG(9)(LOGDEV, "In start ops: %d\n", devicenum ) ;
+d85 1
+a85 1
+	DOLOG(9)(LOGDEV, "In a dummy running thread for %s\n", name ) ;
+d94 1
+a94 1
+    DOLOG(9)(LOGDEV, "%s: about to create thread.\n", name ) ;
+d99 1
+a99 1
+    DOLOG(9)(LOGDEV, "%s: created thread.\n", name ) ;
+d109 1
+a109 1
+    DOLOG(0)( LOGDEV, "In RunObjectInThread.\n" ) ;
+d113 1
+a113 1
+	DOLOG(0)( LOGDEV, "Failed in RunObjectInThread.\n" ) ;
+d125 1
+a125 1
+    DOLOG(9)(LOGDEV, "Waiting %s\n", name ) ;
+d127 1
+a127 1
+    DOLOG(9)(LOGDEV, "Released %s\n", name ) ;
+d132 1
+a132 1
+    DOLOG(9)(LOGDEV, "Clearing Wait ... %s\n", name ) ;
+d135 1
+a135 1
+    DOLOG(9)(LOGDEV, "... done.\n", name ) ;
+d140 1
+a140 1
+    DOLOG(9)(LOGDEV, "Signalling %s\n", name ) ;
+d144 1
+a144 1
+int Stream::Exchange( const u_char *out, int wtimeo,
+d151 3
+d164 5
+a168 1
+	return( 1 ) ; // Nothing to read into, so just return.
+d172 21
+a192 4
+    if( nread == 0 && flag_time_o ) {
+	fprintf( stderr, "Timeout of %s\n", name ) ;
+	DOLOG(0)(LOGDEV, "Timeout of %s\n", name ) ;
+	errors++ ;
+d196 8
+a203 1
+    strchomp( in ) ;
+d212 2
+d217 1
+a217 2
+    int o_len = strlen( CP out ) ;
+    int nwrite = write( fd, CP out, o_len ) ;
+d219 6
+a224 8
+    /*
+    for( int i = 0 ; i < o_len ; i++ ) 
+	fprintf( stderr, "%02x.", out[i] ) ;
+    */
+
+    if( nwrite <= 0 ) {
+	perror( "WriteStream" ) ;
+	return( -1 ) ;
+d229 1
+a229 1
+	perror( "WriteStream" ) ;
+d244 1
+a244 1
+	DOLOG(9)(LOGDEV, "Write to %s was successful.\r\n", name ) ;
+d249 1
+a249 1
+	DOLOG(0)(LOGDEV, "Write to %s timed out.\r\n", name ) ;
+d254 1
+a254 1
+    perror( "WriteStream" ) ;
+d289 1
+a289 1
+	    DOLOG(0)(LOGDEV, "In ReadStream: timeout.\r\n" ) ;
+d296 1
+a296 1
+	    perror( "ReadStream" ) ;
+d305 1
+a305 1
+		perror( "ReadStream" ) ;
+d313 1
+a313 1
+	    if( in[pnt] == '\n' ) {
+@
+
+
+1.6
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d35 1
+d37 2
+a39 2
+    // pthread_cond_init( &sem_device, NULL ) ;
+    // pthread_mutex_init( &mx_sem_device, NULL ) ;
+d117 5
+d129 8
+d141 32
+a172 1
+    // pthread_cond_signal( &sem_device ) ;
+d219 2
+a220 1
+	return( -1 ) ;
+d222 1
+a222 1
+
+d264 1
+d273 1
+@
+
+
+1.5
+log
+@Working. Correct for crlf.
+@
+text
+@d35 1
+d213 1
+a213 1
+	    return( -1 ) ;
+@
+
+
+1.4
+log
+@Working for CRISM config.
+@
+text
+@d139 6
+@
+
+
+1.3
+log
+@Working.
+@
+text
+@d17 1
+a17 1
+    name = 0 ;
+@
+
+
+1.2
+log
+@Working. Supports SR630.
+@
+text
+@d29 1
+d33 2
+d36 3
+a38 2
+    pthread_cond_init( &sem_device, NULL ) ;
+    pthread_mutex_init( &mx_sem_device, NULL ) ;
+d60 5
+d73 6
+d115 7
+d124 3
+a126 2
+    // sem_post( &sem_device ) ;
+    pthread_cond_signal( &sem_device ) ;
+d135 2
+d157 2
+d162 1
+d195 2
+d220 1
+d229 1
+d236 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d8 1
+d13 1
+d18 1
+d29 4
+a32 1
+    // sem_init( &sem_device, 0, 0 ) ;
+a34 1
+    std::cerr << "In stream constructor.\n" ;
+d36 7
+d50 6
+d59 3
+a61 2
+void Stream::StartOps( void ) {
+    std::cout << "In start ops: " << devicenum << "\n" ;
+d67 1
+a67 1
+	std::cout << "In a running thread for " << name << "\n" ;
+d76 1
+a76 1
+    std::cerr << name << ": about to create thread.\n" ;
+d81 1
+a81 1
+    std::cerr << name << ": created thread.\n" ;
+d105 104
+@

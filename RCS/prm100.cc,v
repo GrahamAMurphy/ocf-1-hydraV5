@@ -1,0 +1,332 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@2014-11-11 07:11:52 gam-1
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <math.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "prm100.h"
+#include "support.h"
+#include "periodic.h"
+
+PRM100::PRM100( void )
+{
+    devtype = TypePRM100 ;
+    devtypestring = "PRM 100" ;
+    // cycle = 600000 ; // 60.0 secs
+    cycle = 10000 ; // 60.0 secs
+    delay = 10000 ; // 10.0 secs 
+    delay = 3000 ; // 10.0 secs 
+    ucIntegrationParameter = CalculateTimeParameter( 4.0 ) ;
+    DODBG(9)(DBGDEV, "Leaving PRM100 constructor.\n" ) ; 
+}
+
+void PRM100::StartOps( void )
+{
+    DODBG(9)(DBGDEV, "%s: PRM100 being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( 3 ) ; // One key state.
+
+    u_char temp[256] ;
+    snprintf( CP temp, 256, "%s get", getAlias() ) ;
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp ) ;
+
+    StartThread() ;
+}
+
+void PRM100::StartPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->SetPeriod( mPeriodics[i], cycle ) ;
+	PeriodicQ->Schedule( mPeriodics[i], delay ) ;
+	PeriodicQ->Enable( mPeriodics[i] ) ;
+    }
+}
+
+void PRM100::StopPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->Disable( mPeriodics[i] ) ;
+    }
+}
+
+int PRM100::DeviceOpen( void )
+{
+    StartPeriodicTasks() ;
+    return( true ) ;
+}
+
+void PRM100::DeviceClose( void )
+{
+    StopPeriodicTasks() ;
+}
+
+#define NOSTATUS	NoStatus(0)
+
+// Only returns false if we deem a communication error demands or implies
+// a disconnect.
+int PRM100::AddressPRM100( u_char *resp, int mlen )
+{
+    u_char temp[256] ;
+    int nexc = -1 ;
+
+    if( strcasecmp( CP client_cmd.cmd[1], "get" ) == 0 ) {
+	do {
+
+	    u_char ucQuietOut[4] ;
+	    ucQuietOut[0] = '/' ; ucQuietOut[2] = '\0' ;
+
+	    ucQuietOut[1] = ucIntegrationParameter ;
+	    nexc = Exchange( ucQuietOut, w_timeo, temp, sizeof(temp), -r_timeo ) ;
+	    if( nexc <= 0 ) break ;
+
+	    ucQuietOut[1] = 0x80 ;
+	    nexc = Exchange( ucQuietOut, w_timeo, temp, sizeof(temp), -r_timeo ) ;
+	    if( nexc <= 0 ) break ;
+
+	    int iuSleep = (int)( 1000000 * (CalculateTrueTime( (int)ucIntegrationParameter ) - 5 ) ) ;
+	    if( iuSleep > 5000000 ) {
+		ucQuietOut[1] = 0x40 ;
+		nexc = Exchange( ucQuietOut, w_timeo, temp, sizeof(temp), -r_timeo ) ;
+		if( nexc <= 0 ) break ;
+		usleep( iuSleep ) ;
+		nexc = Exchange( "", w_timeo, temp, sizeof(temp), r_timeo ) ;
+		if( nexc <= 0 ) break ;
+	    } else {
+		ucQuietOut[0] = 0x40 ;
+		ucQuietOut[1] = 0x00 ;
+
+		nexc = Exchange( ucQuietOut, w_timeo, temp, sizeof(temp), r_timeo ) ;
+		if( nexc <= 0 ) break ;
+	    }
+
+	    #if 0
+	    for( int i = 0 ; i < nexc ; i++ ) fprintf( stderr, "%02x ", temp[i] ) ;
+	    fprintf( stderr, "(%d)\n", nexc ) ;
+	    #endif
+
+	    if( nexc != 12 ) {
+		NOSTATUS; 
+		SET_409_BADRESP(resp,mlen,temp) ; 
+		return(true) ;
+	    }
+	    
+	    unsigned long long ullValue = 0 ;
+	    int k ;
+	    for( k = 0 ; k < 5 ; k++ ) {
+		u_int ui_m ;
+		int nscan = sscanf( CP temp+2*k, "%2x", &ui_m ) ;
+		if( nscan == 1 ) {
+		    ullValue |= ((unsigned long long)ui_m) << (8*k) ;
+		} else 
+		    break ;
+	    }
+	    if( k != 5 ) {
+		NOSTATUS; 
+		SET_409_BADRESP(resp,mlen,temp) ; 
+		return(true) ;
+	    }
+	    
+
+	    u_char c_value[64] ;
+	    snprintf( CP c_value, 64, "%lld", ullValue ) ;
+	    snprintf( CP resp, mlen, "%s", CP c_value ) ;
+
+	    double dIntTime = CalculateTrueTime( ucIntegrationParameter ) ;
+	    AddStatus( 0, UCP "Count", c_value ) ;
+
+	    snprintf( CP temp, sizeof(temp), "%.6g", dIntTime ) ;
+	    AddStatus( 1, UCP "Integration Time", temp ) ;
+
+	    snprintf( CP temp, sizeof(temp), "%.6g", ullValue/dIntTime ) ;
+	    AddStatus( 2, UCP "Rate", temp ) ;
+
+	    return( true ) ;
+	} while( 0 ) ; 
+    
+	if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false) ; } 
+	if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen) ; return(true) ; } 
+    }
+
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[1] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[1], name ) ; 
+
+    return( true ) ;
+}
+
+int PRM100::HandleRequest( void )
+{
+    if( Client::HandleRequest() )
+	return( true ) ;
+
+    u_char response[256] ;
+    int retval = 0 ;
+
+    if( client_cmd.nCmds == 2 && STRCASECMP( client_cmd.cmd[1], "get" ) == 0 ) {
+	retval = AddressPRM100( response, sizeof(response) ) ;
+    } else if( STRCASECMP( client_cmd.cmd[1], "time" ) == 0 ) {
+        retval = IntegrationTime( response, sizeof(response) ) ;
+    } else {
+        DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[1] ) ;
+        snprintf( CP response, sizeof(response), ERR_408_BADCMD ": %s to %s",
+        client_cmd.cmd[1], name ) ; 
+        retval = true ;
+    }
+
+    mQueue->SetResponse( response ) ; 
+    DODBG(0)( DBGDEV, "client response %s: <%s>\n", name, response ) ;
+    StatusLog->L_Command_U( name, mQueue->GetRequest(), response ) ; 
+    return( retval ) ;
+}
+
+double PRM100::CalculateTrueTime( int iTime )
+{
+#if 0
+    iTime -= 32 ;
+
+    if( iTime < 2 || iTime > 31 ) {
+	return( 0.0 ) ;
+    }
+    double dTime = 1.5e-7 + 1e-6 * pow(2., iTime ) ;
+    return( dTime ) ;
+#endif
+
+    double dTime = pow(2, (iTime & 0x0F) ) * 1e-3 ;
+    return( dTime ) ;
+}
+
+int PRM100::CalculateTimeParameter( double dTime )
+{
+    int iTime ;
+
+// There are two schemes provided ... one old, one new. Old wins.
+
+#if 1
+    iTime = (int)( 0.5 + log(dTime * 1e3)/log(2.) ) ;
+    if( iTime <= 0 || iTime > 0xf ) return( 0 ) ;
+    int iReturn = 0x30 | ( 0x0F & iTime ) ;
+    return( iReturn ) ;
+#endif
+
+#if 0
+    dTime -= 1.5e-7 ;
+    if( dTime <= 0 ) return( 0 ) ;
+
+    iTime = (int)( 0.5 + log(dTime * 1e6)/log(2.) ) ;
+    if( iTime < 2 || iTime > 31 ) {
+	iTime = 0 ;
+    } else {
+	iTime += 32 ;
+    }
+    return( iTime ) ;
+#endif
+}
+
+int PRM100::IntegrationTime( u_char *resp, int mlen )
+{
+    u_char temp[256] ;
+
+    if( client_cmd.nCmds == 3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+        snprintf( CP resp, mlen, "%.7lf", CalculateTrueTime( (int)ucIntegrationParameter ) ) ;
+        return( true ) ;
+    }
+
+    if( client_cmd.nCmds != 4 || STRCASECMP(client_cmd.cmd[2], "set" ) != 0) {
+        DODBG(0)(DBGDEV, "Bad command: %s\n", client_cmd.cmd[2] ) ;
+        snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[1], name ) ;
+        return( true ) ;
+    }
+
+    double dTime ;
+    int nscan = sscanf( CP client_cmd.cmd[3], "%lf", &dTime ) ;
+    if( nscan != 1 ) {
+        DODBG(0)(DBGDEV, "Bad time: %s\n", client_cmd.cmd[3] ) ;
+        snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[1], name ) ;
+        return( true ) ;
+    }
+    int iInt = CalculateTimeParameter( dTime ) ;
+    if( iInt == 0 ) {
+        DODBG(0)(DBGDEV, "Bad time: %s\n", client_cmd.cmd[3] ) ;
+        snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[1], name ) ;
+        return( true ) ;
+    }
+    ucIntegrationParameter = (u_char) iInt ;
+
+    double dIntTime = CalculateTrueTime( (int)ucIntegrationParameter ) ;
+
+    snprintf( CP temp, sizeof(temp), "%.6g", dIntTime ) ;
+    AddStatus( 1, UCP "Integration Time*", temp ) ;
+
+    snprintf( CP resp, mlen, "%.7lf", dIntTime ) ;
+    return( true ) ;
+}
+
+static const char* cClientOptions[] = {
+    "get",
+    "time get",
+    "time set %f",
+    } ;
+
+int PRM100::ListOptions( int iN, u_char *cOption, int iOptionLength )
+{
+    int M = 0 ;
+    strcpy( CP cOption, "" ) ;
+
+    int iMax = sizeof(cClientOptions)/sizeof(char*) ;
+
+    if( 0 <= iN && iN < iMax ) {
+        strncpy( CP cOption, cClientOptions[iN], iOptionLength ) ;
+	M = strlen( CP cOption ) ;
+    } else {
+	M = Client::ListOptions( iN-iMax, cOption, iOptionLength ) ;
+    }
+    return( M ) ;
+}
+
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@

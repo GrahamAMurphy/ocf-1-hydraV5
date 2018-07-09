@@ -1,0 +1,10 @@
+You need to set up a new .cc and .h file for the new type of device. Typically based
+upon something already in place, these files define the methods associated with that
+device, such as moving or querying.
+
+Also, the new device type must be added to the stream.h file.
+
+And finally, the new .h must be included in main.c, and the "network-client-*" keyword
+added into the InitializePorts function.
+
+Oh, and perhaps most importantly, entries for the new .cc and .o must be made in the Makefile!

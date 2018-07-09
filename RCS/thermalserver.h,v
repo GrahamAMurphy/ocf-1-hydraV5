@@ -1,0 +1,91 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.2;
+
+1.2
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Found bug in queue handling. Depend upon labview timeout.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __ThermalServer_h__
+#define __ThermalServer_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+#include <pthread.h>
+
+#include "server.h"
+#include "support.h"
+
+class ThermalServer : public Server {
+    u_char *uc_temp_file ;
+    void ReadInTempNames( void ) ;
+    bool names_read ;
+    virtual void ServerActive( void ) ;
+    virtual void StartOps( void ) ;
+    virtual int Parse( u_char *key, u_char *value ) ;
+public:
+    ThermalServer() ;
+} ;
+
+#endif // __ThermalServer_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.2
+log
+@Working Version. SRS630 included.
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d14 3
+d18 2
+@

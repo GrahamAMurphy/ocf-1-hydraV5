@@ -1,0 +1,1125 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.11;
+
+1.11
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.10;
+
+1.10
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.9;
+
+1.9
+date	2004.07.02.21.39.21;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.11.02.35.12;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.11.54.25;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Waits for connections from outsiders. This may be either the
+Sequencer or the FITS Builder. Parses requests from these
+sources and directs them to the appropriate client.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "server.h"
+#include "support.h"
+
+Server::Server( void )
+{
+    port_set = false ;
+    bind_fail_exit = true ;
+    devtype = TypeServer ;
+    devtypestring = "Server" ;
+    n_cmds = 0 ;
+    strcpy( CP from_ip, "" ) ;
+    server_state = 0 ;
+    w_timeo = 120 ; // SECS! to confuse things, this is a transaction timeout.
+    is_a_server = true ;
+
+    pthread_mutexattr_t sequencer_mutex_attr ;
+    pthread_mutexattr_init( &sequencer_mutex_attr ) ;
+    pthread_mutexattr_settype( &sequencer_mutex_attr, PTHREAD_MUTEX_NORMAL ) ;
+    pthread_mutexattr_setprotocol( &sequencer_mutex_attr, PTHREAD_PRIO_INHERIT ) ;
+
+    pthread_mutex_init( &sequencer_mutex, &sequencer_mutex_attr ) ;
+    pthread_mutex_lock( &sequencer_mutex ) ;
+    pthread_mutex_unlock( &sequencer_mutex ) ;
+
+    DODBG(9)(DBGDEV, "Leaving server constructor.\n" ) ;
+}
+
+int Server::Parse( u_char *key, u_char *value )
+{
+    if( strcasecmp( CP key, "port" ) == 0 ) {
+        uc_bind_port = UCP strdup( CP value ) ;
+	port_set = true ;
+    } else if( strcasecmp( CP key, "bind-fail-exit" ) == 0 ) {
+	bind_fail_exit = strtol( CP value, NULL, 0 ) ;
+    } else {
+        return( Stream::Parse( value, key )  ) ;
+    }
+
+    return( true ) ;
+}
+
+void Server::StartOps( void )
+{
+    DODBG(9)(DBGDEV, "Server being started up.\n" ) ;
+    mStatus = OCF_Status->RequestStatus( 1 ) ; // debug info.
+
+    StartThread() ;
+    DODBG(9)(DBGDEV, "Server has started.\n" ) ;
+}
+
+int Server::CreateAndBind( void )
+{
+    bind_port = GetPortNumber( uc_bind_port ) ;
+    if( bind_port < 0 ) {
+	DODBG(0)(DBGDEV, "Bad port number.\n" ) ;
+	return( false ) ;
+    }
+
+    bind_protocol = GetProtocol( uc_bind_port ) ;
+    if( bind_protocol < 0 ) {
+	DODBG(0)(DBGDEV, "Bad protocol.\n" ) ;
+	return( false ) ;
+    }
+
+    socket_type = (bind_protocol == IPPROTO_UDP) ? SOCK_DGRAM : SOCK_STREAM ;
+
+    fdnet = socket( AF_INET, socket_type, bind_protocol ) ;
+    if( fdnet < 0 ) {
+	perror( "socket" ) ;
+	DODBG(0)(DBGDEV, "Server socket could not be opened.\n" ) ;
+	return( false ) ;
+    }
+
+    SetCloseOnExec( fdnet ) ;
+
+    DODBG(4)(DBGDEV, "Server socket: fd=%d proto=%d\n", fdnet, bind_protocol );
+
+    SetSocketOptions( fdnet, (1<<SO_REUSEADDR) ) ;
+
+    memset( (u_char*)&sin, 0, sizeof(sin) ) ;
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons( bind_port ) ;
+    if( bind( fdnet, (struct sockaddr*)&sin, sizeof(sin) ) < 0 ) {
+        perror("bind") ;
+        DODBG(0)( DBGDEV, "Error in server bind.\n" ) ;
+	return( false ) ;
+    }
+    DODBG(2)( DBGDEV, "Bind succeeded for %s\n", name ) ;
+
+    if( bind_protocol == IPPROTO_UDP ) 
+	return( false ) ; // We are not supporting this yet.
+
+    return( true ) ;
+}
+
+void Server::Unbind( void ) 
+{
+    shutdown( fdnet, 2 ) ;
+    close( fdnet ) ;
+    fdnet = -1 ;
+}
+
+void Server::AcceptConnection( void ) 
+{
+    char *client, *ipclient ;
+    struct hostent *cname ;
+    socklen_t fromlen ;
+    u_long ipaccept ;
+    struct sockaddr_in frominet ;
+
+    fromlen = sizeof(frominet);
+    frominet = sin ;
+    while( bRunning ) {
+	fd = accept(fdnet, (struct sockaddr*)&frominet, &fromlen);
+	if( fd < 0 && errno == EINTR ) continue ;
+
+	if( fd < 0 && errno != EINTR ) {
+	    perror( "accept:" ) ;
+	    DODBG(0)( DBGDEV, "Error in server accept.\n" ) ;
+	    return ;
+	}
+	break ;
+    }
+    if( bRunning == false )
+	return ;
+
+    SetCloseOnExec( fd ) ;
+
+    cname = gethostbyaddr( (char*)&frominet.sin_addr, 
+        sizeof(struct in_addr), frominet.sin_family );
+    ipclient = (char*)inet_ntoa(frominet.sin_addr);
+    strncpy( CP from_ip, ipclient, sizeof(from_ip) ) ;
+
+    if(cname) client = (char*)cname->h_name;
+    else client = ipclient ;
+
+    ipaccept = frominet.sin_addr.s_addr ;
+
+    from_port = ntohs( frominet.sin_port ) ;
+
+    DODBG(11)( DBGDEV, "Accepted from %s (%s:%d) fd=%d\n",
+            client, ipclient, from_port, fdnet ) ;
+
+    char c_status[256] ;
+    snprintf( c_status, 256, "Connection from %s", CP client );
+    StatusLog->L_Write_U( name, "INFO", c_status ) ;
+}
+
+void Server::Disconnect( void )
+{
+    DODBG(0)(DBGDEV, "Connection to server was terminated. \n" ) ;
+    shutdown( fd, 2 ) ;
+    close( fd) ;
+    fd = -1 ;
+}
+
+void Server::PleaseReport( int wline, int scol )
+{
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "P %d", bind_port ) ;
+    switch( server_state ) {
+    case 0:
+	strncpy( gStatus[wline][scol++], "Unconnected", MAXDEVSTR ) ;
+	break ;
+    case 1:
+	strncpy( gStatus[wline][scol++], "Listening", MAXDEVSTR ) ;
+	break ;
+    case 2:
+	strncpy( gStatus[wline][scol++], "Connected", MAXDEVSTR ) ;
+	strncpy( gStatus[wline][scol++], "to", MAXDEVSTR ) ;
+	strncpy( gStatus[wline][scol++], CP from_ip, MAXDEVSTR ) ;
+	snprintf( gStatus[wline][scol++], MAXDEVSTR, "C=%d", n_cmds ) ;
+	break ;
+    }
+}   
+
+void Server::RunThread( void )
+{
+    if( ! port_set ) return ;
+
+    while( bRunning ) {
+	server_state = 0 ;
+	if( ! CreateAndBind() ) { 
+	    DODBG(0)(DBGDEV, "There is another system.\n" ) ;
+	    DODBG(0)(DBGDEV, "Sequencer cannot operate.\n" ) ;
+	    if( bind_fail_exit ) exit(0) ;
+	    return ;
+	}
+
+	server_state = 1 ;
+	if( listen(fdnet, -1) < 0 ) {
+	    perror( "listen" ) ;
+	    DODBG(4)( DBGDEV, "Error in server listen.\n" ) ;
+	    DODBG(0)(DBGDEV, "Sequencer cannot operate.\n" ) ;
+	    if( bind_fail_exit ) exit(0) ;
+	    return ;
+	}
+	DODBG(2)( DBGDEV, "Listen succeeded for %s.\n", name ) ;
+
+	AcceptConnection() ;
+	Unbind() ;
+
+	server_state = 2 ;
+	ServerActive() ;
+	StatusLog->L_Write_U( name, "INFO", "Connection terminated." ) ;
+    }
+}
+
+void Server::ServerActive( void )
+{
+    int ck_pnt = 0 ;
+    n_cmds = 0 ;
+    rx_pnt = 0 ;
+
+    while( 1 ) {
+	u_char *p_eol = 0 ;
+	int nread = 0 ;
+	if( rx_pnt > ck_pnt ) {
+	    p_eol = (u_char*)memchr( buff_rx+ck_pnt, '\n', (rx_pnt-ck_pnt) ) ;
+
+	    if( p_eol ) ck_pnt = p_eol - buff_rx ;
+	    else ck_pnt = rx_pnt ;
+	}
+	if( ! p_eol ) {
+	    while( 1 ) {
+		nread = read( fd, buff_rx+rx_pnt, RX_BUFFSZ-rx_pnt ) ;
+		if( nread <= 0 ) {
+		    if( errno == EINTR ) continue ;
+		    perror( CP name ) ;
+		    Disconnect() ;
+		    return ;
+		}
+		break ;
+	    }
+	}
+
+	rx_pnt += nread ;
+
+	p_eol = (u_char*)memchr( buff_rx+ck_pnt, '\n', (rx_pnt-ck_pnt) ) ;
+	if( p_eol ) {
+	    ck_pnt = p_eol - buff_rx + 1 ;
+	    if( ck_pnt > 1 && p_eol[-1] == '\r' ) p_eol-- ;
+	    *p_eol = '\0' ;
+	}
+	else {
+	    ck_pnt = rx_pnt ;
+	    continue ;
+	}
+
+	buff_rx[rx_pnt] = '\0' ; // This is just so we can print out.
+
+	if( *buff_rx == '#' || *buff_rx == '\0' ) {
+	    ck_pnt = rx_pnt = 0 ;
+	    continue ;
+	}
+	DODBG(0)(DBGDEV, "%s received <%s>\n", name, buff_rx ) ;
+
+	int nwrite ;
+	n_cmds++ ;
+
+	pthread_mutex_lock( &sequencer_mutex ) ;
+	SequencerCmd() ;
+	pthread_mutex_unlock( &sequencer_mutex ) ;
+
+	/* We write out whatever was provided */
+	while( tx_pnt > 0 ) {
+	    nwrite = write( fd, buff_tx, tx_pnt ) ;
+	    if( nwrite <= 0 ) {
+		if( errno == EINTR ) continue ;
+		perror( CP name ) ;
+		Disconnect() ;
+		return ;
+	    }
+	    break ;
+	}
+	rx_pnt = rx_pnt - ck_pnt ;
+	if( rx_pnt )
+	    memmove( buff_rx, buff_rx+ck_pnt, rx_pnt ) ;
+	ck_pnt = 0 ;
+    }
+}
+
+int Server::SequencerCmd( void )
+{
+    u_char *s_target = buff_rx ;
+
+    for( ; *s_target != '\0' ; s_target++ ) {
+	if( *s_target != ' ' && *s_target != '\t' ) break ;
+    }
+
+    StatusLog->L_Write_U( name, "INFO", s_target ) ;
+    DODBG(2)(DBGDEV, "%s received command: %s\n", name, s_target ) ;
+
+    u_char temp[256] ;
+    snprintf( CP temp, 256, "#Cmds=%d Last=%s", n_cmds, s_target ) ;
+    OCF_Status->AddStatus( mStatus, name, temp, 0 ) ;
+
+    bool do_wait = true ;
+    if( *s_target == '@@' ) { // Hack to find out wait or not.
+	s_target++ ;
+	do_wait = false ;
+    }
+    DODBG(4)(DBGDEV, "Will %swait for response.\n", do_wait?"":"NOT " ) ;
+
+    u_char *e_target = UCP strpbrk( CP s_target, " \t" ) ;
+    if( ! e_target ) {
+	e_target = s_target ;
+	while( *e_target != '\0' ) e_target++ ;
+    }
+
+    int l_target = e_target - s_target ;
+
+    if( l_target == 0 ) {
+	DODBG(4)( DBGDEV, "Null command %s.\n", s_target ) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, ERR_400_NULL " %s.\r\n", 
+	    s_target );
+	tx_pnt = strlen( CP buff_tx ) ;
+	return( false ) ;
+    }
+
+    u_char target[1024] ;
+    memcpy( target, s_target, l_target ) ;
+    target[l_target] = '\0' ;
+
+    DODBG(4)( DBGDEV, "Target of command: %s.\n", target ) ;
+
+    for(  u_char *p_t = target ; *p_t != '\0' ; p_t++ ) {
+	*p_t = tolower( *p_t ) ;
+    }
+
+    if( strcmp( "query", CP target ) == 0 ) {
+	int HandleQuery( u_char *ucRequest, u_char *ucResponse, int iResponseSize ) ;
+	tx_pnt = HandleQuery( buff_rx, buff_tx, sizeof(buff_tx) ) ;
+	return( true ) ;
+    }
+
+    ENTRY newent, *ep ;
+    newent.key = CP target ;
+    newent.data = (void*) -1 ;
+
+    ep = hsearch( newent, FIND ) ;
+    if( ! ep ) {
+	DODBG(0)( DBGDEV, "Target of command not known!!!! <%s>\n", target ) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, ERR_401_UKNTGT ": <%s>.\r\n", target );
+	tx_pnt = strlen( CP buff_tx ) ;
+	return( false ) ;
+    }
+
+    int wdev = (long) ep->data ;
+    if( wdev <= 0 || wdev > TopDev() ) {
+	DODBG(0)( DBGDEV, "Target out of range: %d\n", wdev ) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, ERR_402_BADTGT ": <%d>.\r\n", wdev ) ;
+	tx_pnt = strlen( CP buff_tx ) ;
+	return( false ) ;
+    }
+
+    DODBG(4)( DBGDEV, "Target device is: <%s>\n", streams[wdev]->getName() ) ;
+
+    if( ! streams[wdev]->Active() ) {
+	DODBG(4)( DBGDEV, "Target device is not active.\n" ) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, 
+	    ERR_403_TGTOFF": <%s>.\r\n", streams[wdev]->getName() ) ;
+	tx_pnt = strlen( CP buff_tx ) ;
+	return( false ) ;
+    }
+
+    if( ! streams[wdev]->IsAClient() ) {
+	DODBG(4)( DBGDEV, "Target device is not a client.\n" ) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, 
+	    ERR_411_NOTCLNT": <%s>.\r\n", streams[wdev]->getName() ) ;
+	tx_pnt = strlen( CP buff_tx ) ;
+	return( false ) ;
+    }
+
+    int wdev_qnum ;
+    wdev_qnum = streams[wdev]->mQueue->AddTransaction( buff_rx, do_wait ) ;
+    if( wdev_qnum < 0 ) {
+	DODBG(0)( DBGDEV, "No room on queue for %s\n", streams[wdev]->getName()) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, 
+	    ERR_404_QUEFLL " for %s.\r\n", streams[wdev]->getName() ) ;
+	tx_pnt = strlen( CP buff_tx ) ;
+	return( false ) ;
+    }
+
+    // make sure device knows about the request.
+    DODBG(4)( DBGDEV, "Signalling <%s>\n", streams[wdev]->getName() ) ;
+    streams[wdev]->SignalDevice() ;
+
+    if( do_wait ) {
+	DODBG(4)( DBGDEV, "Waiting for <%s> %d\n", 
+	    streams[wdev]->getName(), wdev_qnum ) ;
+
+	if( streams[wdev]->mQueue->WaitTransaction( wdev_qnum, w_timeo ) ) {
+	    snprintf( CP buff_tx, TX_BUFFSZ, "%s\r\n",
+		streams[wdev]->mQueue->GetResponse( wdev_qnum ) ) ;
+	} else {
+	    snprintf( CP buff_tx, TX_BUFFSZ, 
+		ERR_405_SEQTO " for %s.\r\n", streams[wdev]->getName() );
+	}
+
+	DODBG(4)( DBGDEV, "Response was: >%s", buff_tx ) ;
+	streams[wdev]->mQueue->ReleaseTransaction( wdev_qnum ) ;
+    } else {
+	strncpy( CP buff_tx, ERR_100_NOWAIT "\r\n", TX_BUFFSZ ) ;
+    }
+    tx_pnt = strlen( CP buff_tx ) ;
+
+    return( true ) ;
+}
+
+int HandleQuery( u_char *ucRequest, u_char *ucResponse, int iResponseSize )
+{
+    sCmd query_cmd ;
+    strcpy( CP ucResponse, "" ) ;
+    int iDone = 0 ;
+    int M = 0 ;
+
+    int n = TokenizeRequest( ucRequest, query_cmd ) ;
+    if( n <= 1 ) {
+	M += snprintf( CP ucResponse+M, iResponseSize-M, ERR_408_BADCMD ": <%s>.\r\n", CP ucRequest );
+	return( M ) ;
+    }
+
+    if( strcasecmp( CP query_cmd.cmd[1], "all" ) == 0 ) {
+	int i ;
+	for( i = 0 ; i <= TopDev() ; i++ ) {
+	    if( streams[i]->getType() == Stream::TypeNone ) continue ;
+	    M += snprintf( CP ucResponse+M, iResponseSize-M, "<%s>", CP streams[i]->getName() ) ;
+	}
+	iDone = 1 ;
+    } else if( strcasecmp( CP query_cmd.cmd[1], "aliases" ) == 0 ) {
+	int i ;
+	for( i = 0 ; i <= TopDev() ; i++ ) {
+	    if( streams[i]->getType() == Stream::TypeNone ) continue ;
+	    const u_char *p = streams[i]->getAlias(0) ;
+	    if( p == 0 )
+		continue ;
+
+	    M += snprintf( CP ucResponse+M, iResponseSize-M, "<%s=", CP streams[i]->getName() ) ;
+	    int j ;
+	    int iOnce = 1 ;
+
+	    for( j = 0 ; j < MAXALIASES ; j++ ) {
+		p = streams[i]->getAlias(j) ;
+		if( p == 0 ) break ;
+		if( iOnce == 0 ) M += snprintf( CP ucResponse+M, iResponseSize-M, "," ) ;
+		M += snprintf( CP ucResponse+M, iResponseSize-M, "%s", CP p ) ;
+		iOnce = 0 ;
+	    }
+	    M += snprintf( CP ucResponse+M, iResponseSize-M, ">" ) ;
+	}
+	iDone = 1 ;
+    } else if( strcasecmp( CP query_cmd.cmd[1], "enabled" ) == 0 ) {
+	int i ;
+	for( i = 0 ; i <= TopDev() ; i++ ) {
+	    if( streams[i]->getType() == Stream::TypeNone ) continue ;
+	    if( ! streams[i]->IsEnabled() ) continue ;
+	    M += snprintf( CP ucResponse+M, iResponseSize-M, "<%s>", CP streams[i]->getName() ) ;
+	}
+	iDone = 1 ;
+    }
+    if( iDone > 0 ) {
+	M += snprintf( CP ucResponse+M, iResponseSize-M, "\r\n" ) ;
+	return( M ) ;
+    }
+
+    if( n != 3 ) {
+	M += snprintf( CP ucResponse+M, iResponseSize-M, ERR_408_BADCMD ": <%s>.\r\n", CP ucRequest );
+	return( M ) ;
+    }
+
+    ENTRY newent, *ep ;
+    newent.key = CP query_cmd.cmd[1] ;
+    newent.data = (void*) -1 ;
+
+    ep = hsearch( newent, FIND ) ;
+    if( ! ep ) {
+	DODBG(0)( DBGDEV, "Target of command not known!!!! <%s>\n", query_cmd.cmd[1] ) ;
+	M += snprintf( CP ucResponse+M, iResponseSize-M, ERR_401_UKNTGT ": <%s>.\r\n", query_cmd.cmd[1] );
+	return( M ) ;
+    }
+
+    int wdev = (long) ep->data ;
+    if( wdev <= 0 || wdev > TopDev() ) {
+	DODBG(0)( DBGDEV, "Target out of range: %d\n", wdev ) ;
+	M += snprintf( CP ucResponse+M, iResponseSize-M, ERR_402_BADTGT ": <%d>.\r\n", wdev ) ;
+	return( M ) ;
+    }
+    int iSelect = strtol( CP query_cmd.cmd[2], NULL, 0 ) ;
+
+    Client *t = dynamic_cast<Client*>(streams[wdev]) ;
+
+    M = t->ListOptions( iSelect, ucResponse, iResponseSize ) ;
+    if( M >= 0 ) {
+	M += snprintf( CP ucResponse+M, iResponseSize-M, "\r\n" ) ;
+    }
+    return( M ) ;
+}
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.11
+log
+@Working system. Backing up.
+@
+text
+@d7 1
+d16 1
+d29 1
+a29 1
+    w_timeo = 30 ; // SECS! to confuse things, this is a transaction timeout.
+d32 9
+d90 2
+d129 10
+a138 5
+    fd = accept(fdnet, (struct sockaddr*)&frominet, &fromlen);
+    if( fd < 0 ) {
+	perror( "accept" ) ;
+        DODBG(0)( DBGDEV, "Error in server accept.\n" ) ;
+        return ;
+d140 4
+d150 1
+a150 1
+    if(cname) client = cname->h_name;
+d196 1
+a196 1
+    while( true ) {
+d240 9
+a248 4
+	    nread = read( fd, buff_rx+rx_pnt, RX_BUFFSZ-rx_pnt ) ;
+	    if( nread <= 0 ) {
+		Disconnect() ;
+		return ;
+d276 1
+d278 12
+a289 5
+	nwrite = write( fd, buff_tx, tx_pnt ) ;
+	if( nwrite <= 0 ) {
+	    // perror( CP name ) ;
+	    Disconnect() ;
+	    return ;
+d346 6
+d364 1
+a364 1
+    int wdev = (int) ep->data ;
+d424 89
+@
+
+
+1.10
+log
+@Working Version. SRS630 included.
+@
+text
+@d28 1
+d341 8
+@
+
+
+1.9
+log
+@fixing read problem with double line feeds.
+@
+text
+@a31 19
+int Server::SetOptions( u_char *setup )
+{
+    u_char w_tmp[2048] ;
+
+    if( ! setup ) return( true ) ;
+
+    strncpy( CP w_tmp, CP setup, 2048 ) ;
+
+    sParse parse = { w_tmp, 0, 0 } ;
+
+    while( true ) {
+	bool state = GenericParser( parse, UCP ",", UCP "=" ) ;
+	if( ! state ) break ;
+	Parse( parse.key, parse.value ) ;
+    }
+    return( false ) ;
+}
+
+
+d40 1
+a40 2
+	DODBG(0)(DBGDEV, "Unrecognized option.\n" ) ;
+        return( false ) ;
+a43 1
+
+d142 8
+d162 1
+d203 1
+d205 2
+a207 9
+	int nread = read( fd, buff_rx+rx_pnt, RX_BUFFSZ-rx_pnt ) ;
+	if( nread <= 0 ) {
+	    DODBG(0)(DBGDEV, "Connection to server was terminated. \n" ) ;
+	    shutdown( fd, 2 ) ;
+	    close( fd) ;
+	    fd= -1 ;
+	    return ;
+	}
+
+d209 3
+a211 1
+	int tread = rx_pnt ;
+d213 9
+a221 6
+	for( int i = 0 ; i < nread ; i++ ) {
+	    tread++ ;
+	    if( buff_rx[rx_pnt+i] != '\n' ) continue ;
+	    p_eol = buff_rx + rx_pnt + i ;
+	    if( p_eol[-1] == '\r' ) p_eol-- ;
+	    break ;
+a224 1
+	buff_rx[rx_pnt] = '\0' ;
+d226 12
+a237 1
+	if( !p_eol ) continue ;
+d240 1
+a240 1
+	    rx_pnt = 0 ;
+a242 1
+	*p_eol = '\0' ;
+d252 1
+a252 5
+	    DODBG(0)(DBGDEV, "Connection to server was terminated. \n" ) ;
+	    shutdown( fd, 2 ) ;
+	    close( fd) ;
+	    fd= -1 ;
+	    rx_pnt = 0 ;
+d255 1
+a255 1
+	rx_pnt = rx_pnt - tread ;
+d257 2
+a258 1
+	    memmove( buff_rx, buff_rx+tread, rx_pnt ) ;
+@
+
+
+1.8
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d165 1
+a165 1
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "P#%d", bind_port ) ;
+d176 1
+a176 1
+	snprintf( gStatus[wline][scol++], MAXDEVSTR, "#Cmds=%d", n_cmds ) ;
+@
+
+
+1.7
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d27 1
+d29 1
+a29 1
+    DOLOG(9)(LOGDEV, "Leaving server constructor.\n" ) ;
+d59 1
+a59 1
+	DOLOG(0)(LOGDEV, "Unrecognized option.\n" ) ;
+d69 1
+a69 1
+    DOLOG(9)(LOGDEV, "Server being started up.\n" ) ;
+d73 1
+a73 1
+    DOLOG(9)(LOGDEV, "Server has started.\n" ) ;
+d80 1
+a80 1
+	DOLOG(0)(LOGDEV, "Bad port number.\n" ) ;
+d86 1
+a86 1
+	DOLOG(0)(LOGDEV, "Bad protocol.\n" ) ;
+d95 1
+a95 1
+	DOLOG(0)(LOGDEV, "Server socket could not be opened.\n" ) ;
+d99 1
+a99 1
+    DOLOG(4)(LOGDEV, "Server socket: fd=%d proto=%d\n", fdnet, bind_protocol );
+d108 1
+a108 1
+        DOLOG(0)( LOGDEV, "Error in server bind.\n" ) ;
+d111 1
+a111 1
+    DOLOG(2)( LOGDEV, "Bind succeeded for %s\n", name ) ;
+d139 1
+a139 1
+        DOLOG(0)( LOGDEV, "Error in server accept.\n" ) ;
+d155 1
+a155 1
+    DOLOG(11)( LOGDEV, "Accepted from %s (%s:%d) fd=%d\n",
+d188 2
+a189 1
+	    DOLOG(0)(LOGDEV, "Sequencer cannot operate.\n" ) ;
+d197 2
+a198 2
+	    DOLOG(4)( LOGDEV, "Error in server listen.\n" ) ;
+	    DOLOG(0)(LOGDEV, "Sequencer cannot operate.\n" ) ;
+d202 1
+a202 1
+	DOLOG(2)( LOGDEV, "Listen succeeded for %s.\n", name ) ;
+d209 1
+d219 1
+a219 2
+	    // perror( CP name ) ;
+	    DOLOG(0)(LOGDEV, "Connection to server was terminated. \n" ) ;
+a225 6
+	/*
+	for( int i = 0 ; i < rx_pnt+nread ; i++ ) 
+	    fprintf( stderr, "%02x/", buff_rx[i] ) ;
+	fprintf( stderr, " %d\n", nread ) ;
+	*/
+
+d247 1
+a247 1
+	DOLOG(0)(LOGDEV, "%s received <%s>\n", name, buff_rx ) ;
+d252 2
+a253 5
+	if( SequencerCmd() ) {
+	    nwrite = write( fd, buff_tx, tx_pnt ) ;
+	} else {
+	    nwrite = write( fd, "ERR\r\n", 5 ) ;
+	}
+d256 1
+a256 1
+	    DOLOG(0)(LOGDEV, "Connection to server was terminated. \n" ) ;
+d277 7
+d289 1
+a289 1
+    DOLOG(4)(LOGDEV, "Will %swait for response.\n", do_wait?"":"NOT " ) ;
+d300 3
+a302 2
+	DOLOG(4)( LOGDEV, "Null command %08x.\n", e_target ) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, "ERROR Null command %08x.\r\n", e_target ) ;
+d311 1
+a311 1
+    DOLOG(4)( LOGDEV, "Target of command: %s.\n", target ) ;
+d323 2
+a324 2
+	DOLOG(0)( LOGDEV, "Target of command not known!!!! <%s>\n", target ) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, "ERROR Target of command not known: <%s>.\r\n", target ) ;
+d331 2
+a332 2
+	DOLOG(0)( LOGDEV, "Target not known very well???? %d\n", wdev ) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, "ERROR Target of command has confused us: <%d>.\r\n", wdev ) ;
+d337 1
+a337 1
+    DOLOG(4)( LOGDEV, "Target device is: <%s>\n", streams[wdev]->getName() ) ;
+d340 4
+a343 1
+	DOLOG(4)( LOGDEV, "Target device is not active.\n" ) ;
+d350 3
+a352 2
+	DOLOG(0)( LOGDEV, "No room on queue for %s\n", streams[wdev]->getName()) ;
+	snprintf( CP buff_tx, TX_BUFFSZ, "ERROR No room on queue for %s.\r\n", streams[wdev]->getName() ) ;
+d358 1
+a358 1
+    DOLOG(4)( LOGDEV, "Signalling <%s>\n", streams[wdev]->getName() ) ;
+d362 2
+a363 1
+	DOLOG(4)( LOGDEV, "Waiting for <%s> %d\n", streams[wdev]->getName(), wdev_qnum ) ;
+d365 1
+a365 1
+	if( streams[wdev]->mQueue->WaitTransaction( wdev_qnum, 10 ) >= 0 ) {
+d370 1
+a370 1
+		"ERROR Timeout for %s.\r\n", streams[wdev]->getName() ) ;
+d373 1
+a373 1
+	DOLOG(4)( LOGDEV, "Response was: >%s", buff_tx ) ;
+d376 1
+a376 1
+	strncpy( CP buff_tx, "OK NO WAITING.\r\n", TX_BUFFSZ ) ;
+a379 4
+    u_char temp[256] ;
+    snprintf( CP temp, 256, "#Cmds=%d Last=%s", n_cmds, buff_rx ) ;
+    OCF_Status->AddStatus( mStatus, name, temp, 0 ) ;
+
+@
+
+
+1.6
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d21 1
+d55 4
+a58 1
+    } else 
+d60 1
+d75 1
+a75 1
+void Server::CreateAndBind( void )
+d80 1
+a80 1
+	return ;
+d86 1
+a86 1
+	return ;
+d95 1
+a95 1
+	return ;
+d108 1
+a108 1
+        return ;
+d113 3
+a115 1
+	return ; // We are not supporting this yet.
+d186 5
+a190 1
+	CreateAndBind() ;
+d196 2
+d338 5
+@
+
+
+1.5
+log
+@Working. Correct for crlf.
+@
+text
+@d147 1
+a147 1
+    DOLOG(1)( LOGDEV, "Accepted from %s (%s:%d) fd=%d\n",
+@
+
+
+1.4
+log
+@Working for CRISM config.
+@
+text
+@d157 1
+a157 1
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "Port=%d", bind_port ) ;
+d201 1
+a201 1
+	int nread = read( fd, buff_rx + rx_pnt, RX_BUFFSZ-rx_pnt ) ;
+d203 1
+a203 1
+	    perror( CP name ) ;
+d210 18
+a230 1
+	u_char *p_eol = UCP strpbrk( CP buff_rx, "\r\n" ) ;
+a238 1
+	rx_pnt = 0 ;
+d249 1
+a249 1
+	    perror( CP name ) ;
+d254 1
+d257 3
+@
+
+
+1.3
+log
+@Working.
+@
+text
+@d294 1
+d337 1
+a337 1
+    snprintf( CP temp, 256, "%s #Cmds=%d Last=<%s>", name, n_cmds, buff_rx ) ;
+@
+
+
+1.2
+log
+@Working. Supports SR630.
+@
+text
+@d21 6
+d64 2
+d138 1
+d155 18
+d178 1
+d181 1
+d192 1
+d199 1
+d225 1
+d324 2
+a325 1
+	    snprintf( CP buff_tx, TX_BUFFSZ, "ERROR Timeout for %s.\r\n", streams[wdev]->getName() ) ;
+d328 1
+a328 1
+	DOLOG(4)( LOGDEV, "Response was: <%s>", buff_tx ) ;
+d335 4
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a10 2
+#define FILE_H_NEED (5)
+
+d18 7
+a24 1
+Server::Server( u_char *setup )
+a26 1
+    port_set = false ;
+d28 1
+a28 1
+    if( ! setup ) return ;
+a36 1
+	fprintf( stderr, "key: %s / value: %s\n", parse.key, parse.value ) ;
+d39 1
+d42 1
+d57 1
+a57 1
+    std::cerr << "Server being started up.\n" ;
+d59 1
+a59 1
+    std::cerr << "Server has started.\n" ;
+d78 2
+a79 2
+    fd = socket( AF_INET, socket_type, bind_protocol ) ;
+    if( fd < 0 ) {
+d85 1
+a85 2
+    // DOLOG(4)(LOGDEV, "Server socket: %d %d(%04x)\n", fd, bind_port, bind_port );
+    DOLOG(4)(LOGDEV, "Server socket: fd=%d proto=%d\n", fd, bind_protocol );
+d87 1
+a87 1
+    SetSocketOptions( fd, (1<<SO_REUSEADDR) ) ;
+d92 1
+a92 1
+    if( bind( fd, (struct sockaddr*)&sin, sizeof(sin) ) < 0 ) {
+d105 3
+a107 3
+    shutdown( fd, 2 ) ;
+    close( fd ) ;
+    fd = -1 ;
+d120 2
+a121 2
+    fdnet = accept(fd, (struct sockaddr*)&frominet, &fromlen);
+    if( fdnet < 0 ) {
+d140 4
+d153 1
+a153 1
+	if( listen(fd, -1) < 0 ) {
+d170 1
+a170 1
+	int nread = read( fdnet, buff_rx + rx_pnt, RX_BUFFSZ-rx_pnt ) ;
+d173 4
+a176 5
+	    DOLOG(0)(LOGDEV, "Connection closed. \n" ) ;
+	    DOLOG(0)(LOGDEV, "Not handled yet. \n" ) ;
+	    shutdown( fdnet, 2 ) ;
+	    close( fdnet ) ;
+	    fdnet = -1 ;
+d193 15
+a207 1
+	SequencerCmdParse() ;
+d211 1
+a211 1
+void Server::SequencerCmdParse( void )
+d219 1
+a219 1
+    bool do_wait = false ;
+d222 1
+a222 2
+	do_wait = true ;
+	DOLOG(0)(LOGDEV, "Will WAIT\n" ) ;
+d224 1
+d236 3
+a238 1
+	return ;
+d245 1
+a245 1
+    DOLOG(4)( LOGDEV, "Target of command %s.\n", target ) ;
+d258 3
+a260 1
+	return ;
+d265 3
+a267 1
+	return ;
+d270 1
+a270 3
+    DOLOG(0)( LOGDEV, "Target is: <%s>\n", streams[wdev]->getName() ) ;
+
+    // More bad code ...
+d273 1
+a273 1
+    wdev_qnum = streams[wdev]->mQueue->AddTransaction( buff_rx ) ;
+d276 3
+a278 1
+	return ;
+d280 1
+d282 1
+a282 1
+    DOLOG(0)( LOGDEV, "Signalling <%s>\n", streams[wdev]->getName() ) ;
+a284 1
+    int retval ;
+d286 13
+a298 5
+	DOLOG(0)( LOGDEV, "Waiting for <%s> %d\n", 
+	    streams[wdev]->getName(), wdev_qnum ) ;
+	retval = streams[wdev]->mQueue->WaitTransaction( wdev_qnum, 10 ) ;
+	DOLOG(0)( LOGDEV, "Response was: <%s>\n", 
+	    streams[wdev]->mQueue->GetResponse( wdev_qnum ) ) ;
+d300 1
+d302 1
+a302 1
+    streams[wdev]->mQueue->ReleaseTransaction( wdev_qnum ) ;
+@

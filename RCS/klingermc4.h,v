@@ -1,0 +1,108 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.2;
+
+1.2
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Found bug in queue handling. Depend upon labview timeout.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __KlingerMC4_h__
+#define __KlingerMC4_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+#include <pthread.h>
+
+#include "support.h"
+#include "client.h"
+
+class KlingerMC4 : public Client {
+    virtual int DeviceOpen( void ) ;
+    virtual int HandleRequest( void ) ;
+    virtual void DeviceClose( void ) ;
+    virtual int Parse( u_char *, u_char * ) ;
+    void StartPeriodicTasks( void ) ;
+    void StopPeriodicTasks( void ) ;
+    char Axis( u_char* ) ;
+    int Retrieve( u_char*, int ) ;
+    int Move( u_char*, int ) ;
+    int Goto( u_char*, int ) ;
+    int Motor( u_char*, int ) ;
+    int SetRate( u_char*, int ) ;
+    int Home( u_char*, int ) ;
+    int Zero( u_char*, int ) ;
+    static int const nPeriodics = 1 ;
+    int mPeriodics[nPeriodics] ;
+    u_char *ucAxis[4][2] ;
+
+public:
+    KlingerMC4( void ) ;
+    virtual void StartOps( void ) ;
+    virtual int ListOptions( int, u_char *, int ) ;
+} ;
+
+#endif // __KlingerMC4_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.2
+log
+@Working Version. SRS630 included.
+@
+text
+@d17 1
+d26 2
+d30 2
+d35 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d24 1
+@

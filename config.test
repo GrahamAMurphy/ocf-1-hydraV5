@@ -1,0 +1,14 @@
+# Name       Type         Setup Information
+#
+Epoch	1291992075.0 # Unix time offset for 2010 December.
+
+<Sequencer>    			network-server
+options	<Sequencer>    		<port=5000> 
+
+<SBI4000>     network-client-sbi4000
+options <SBI4000>     <target=192.168.59.24,port=10009>
+
+options	<Sequencer>    		<enable>
+options <SBI4000>    		<enable>
+
+exit

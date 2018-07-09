@@ -1,0 +1,121 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.3;
+
+1.3
+date	2004.09.10.11.43.48;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working for CRISM config.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __Labsphere_h__
+#define __Labsphere_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+#include <pthread.h>
+
+#include "support.h"
+#include "client.h"
+
+class Labsphere : public Client {
+    virtual int DeviceOpen( void ) ;
+    virtual int HandleRequest( void ) ;
+    virtual void DeviceClose( void ) ;
+    void StartPeriodicTasks( void ) ;
+    void StopPeriodicTasks( void ) ;
+    int AddressDetector( u_char*, int ) ;
+    int AddressAttenuator( u_char*, int ) ;
+    static int const nPeriodics = 1 ;
+    int mPeriodics[nPeriodics] ;
+    void GetAttenuatorCmds( int, int, u_char ** ) ;
+    int SetAttenuator( int, int, u_char*, int ) ;
+    void JKJoke( u_char, u_char, u_char* ) ;
+    int attenuator_state[4] ;
+public:
+    Labsphere( void ) ;
+    virtual void StartOps( void ) ;
+    virtual int ListOptions( int, u_char *, int ) ;
+} ;
+
+#endif // __Labsphere_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.3
+log
+@Working system. Backing up.
+@
+text
+@d30 1
+@
+
+
+1.2
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d20 1
+d23 4
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d14 1
+a14 1
+    virtual int ConnectionStarted( void ) ;
+d16 4
+a19 2
+    virtual void ConnectionEnded( void ) ;
+    int AddressDetector( sCmd input, u_char*, int ) ;
+@

@@ -1,0 +1,96 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.2;
+
+1.2
+date	2004.06.04.23.56.41;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.13.01.45;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Defines Keyboard class.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __Keyboard_h__
+#define __Keyboard_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+
+class Keyboard : public Stream {
+    int inited ;
+    struct termios ncontrl, scontrl, save_contrl ;
+public:
+    void StartOps( void ) ;
+    void InitializeKeyboard( void ) ;
+    void ResetKeyboard( void ) ;
+    void HandleRx( void ) ;
+    Keyboard() ;
+} ;
+
+#endif // __Keyboard_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.2
+log
+@Working. Supports SR630.
+@
+text
+@d11 1
+a11 1
+    struct termios ncontrl, scontrl ;
+d15 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a8 6
+#ifdef FILE_H_HAVE
+#undef FILE_H_HAVE
+#endif
+#define FILE_H_HAVE (4)
+#include "extern.h"
+
+@

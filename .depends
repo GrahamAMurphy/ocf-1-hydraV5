@@ -1,0 +1,63 @@
+client.o: client.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ client.h support.h
+filterwheel.o: filterwheel.cc global.h extern.h logging.h errors.h \
+ stream.h queue.h client.h support.h filterwheel.h periodic.h
+httpserver.o: httpserver.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h httpserver.h server.h support.h form_page.cc
+ke617.o: ke617.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ client.h support.h ke617.h periodic.h
+ke6514.o: ke6514.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ client.h support.h ke6514.h periodic.h
+keyboard.o: keyboard.cc global.h extern.h logging.h errors.h main.h \
+ stream.h queue.h keyboard.h
+klingermc4.o: klingermc4.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h klingermc4.h periodic.h
+labsphere.o: labsphere.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h labsphere.h periodic.h
+logging.o: logging.cc global.h extern.h logging.h errors.h support.h \
+ httpserver.h server.h stream.h queue.h xmlserver.h
+main.o: main.cc global.h extern.h logging.h errors.h main.h stream.h \
+ queue.h client.h support.h ke617.h ke6514.h filterwheel.h httpserver.h \
+ server.h xmlserver.h keyboard.h monochromator.h mm4005.h klingermc4.h \
+ unidex11.h unidex511.h pm2813.h prm100.h periodic.h sr630.h labsphere.h \
+ udts370.h udts470.h tempmon.h thermalserver.h newportTH.h sbi4000.h \
+ newmark.h
+mm4005.o: mm4005.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ client.h support.h mm4005.h periodic.h
+monochromator.o: monochromator.cc global.h extern.h logging.h errors.h \
+ stream.h queue.h client.h support.h monochromator.h periodic.h
+newmark.o: newmark.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h newmark.h periodic.h
+newportTH.o: newportTH.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h newportTH.h periodic.h
+periodic.o: periodic.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h periodic.h support.h
+pm2813.o: pm2813.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ client.h support.h pm2813.h periodic.h
+prm100.o: prm100.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ client.h support.h prm100.h periodic.h
+queue.o: queue.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ periodic.h
+sbi4000.o: sbi4000.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h sbi4000.h periodic.h
+server.o: server.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ client.h support.h server.h
+sr630.o: sr630.cc global.h extern.h logging.h errors.h stream.h queue.h \
+ client.h support.h sr630.h periodic.h
+stream.o: stream.cc global.h extern.h logging.h errors.h queue.h stream.h \
+ support.h client.h
+support.o: support.cc global.h extern.h logging.h errors.h support.h
+tempmon.o: tempmon.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h tempmon.h periodic.h
+thermalserver.o: thermalserver.cc global.h extern.h logging.h errors.h \
+ stream.h queue.h thermalserver.h server.h support.h
+udts370.o: udts370.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h udts370.h periodic.h
+udts470.o: udts470.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h udts470.h periodic.h
+unidex11.o: unidex11.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h unidex11.h periodic.h
+unidex511.o: unidex511.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h client.h support.h unidex511.h periodic.h
+xmlserver.o: xmlserver.cc global.h extern.h logging.h errors.h stream.h \
+ queue.h xmlserver.h server.h support.h

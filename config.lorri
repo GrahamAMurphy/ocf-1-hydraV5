@@ -1,0 +1,42 @@
+# Name       Type         Setup Information
+#
+Epoch   946684800.0 # Unix time offset for Lorri MET Epoch 2000+001.0 UT
+
+<Sequencer>    			network-server
+options	<Sequencer>    		<port=5000> 
+alias	<Sequencer>    		<Sequencer>
+
+<Filter Wheel 3>	network-client-filterwheel
+options	<Filter Wheel 3>	<target=TestHost0,port=10303>
+alias	<Filter Wheel 3>	<nb>
+
+<Filter Wheel 7>	network-client-filterwheel
+options	<Filter Wheel 7>	<target=TestHost0,port=10307>
+alias	<Filter Wheel 7>	<nd>
+
+<Unidex 11>     network-client-unidex11
+options <Unidex 11>     <target=TestHost0,port=10302>
+alias   <Unidex 11>     <Unidex>
+
+<Klinger MC4/MD4>	network-client-klinger
+options	<Klinger MC4/MD4>	<target=TestHost0,port=10304>
+alias	<Klinger MC4/MD4>	<Klinger>
+
+<KE6514>	network-client-ke6514
+options	<KE6514>	<target=TestHost0,port=10306>
+alias	<KE6514>	<ke6514>
+
+<Thermal Server>        network-server-thermal
+options <Thermal Server>        <port=5001> 
+options <Thermal Server>        <names=/cal/lorri/etc/lorri_tcnames.txt>
+alias   <Thermal Server>        <ThermalServer>
+
+options	<Sequencer>    		<enable>
+options <Unidex 11>     	<enable>
+options	<Filter Wheel 3>	<enable>
+options	<Filter Wheel 7>	<enable>
+options	<Klinger MC4/MD4>	<disable>
+options	<KE6514>		    <disable>
+options <Thermal Server>    <disable>
+
+exit

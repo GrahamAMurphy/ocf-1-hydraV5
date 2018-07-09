@@ -1,0 +1,40 @@
+head	1.1;
+access;
+symbols;
+locks
+	murphy:1.1; strict;
+comment	@# @;
+
+
+1.1
+date	2004.09.13.20.58.04;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Names for first CRISM run.
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@"TC"	1	"LN2 Line @@ Cold Plate"
+"TC"	3	"Under Instr Mtg Plate"
+"TC"	4	"GME End"
+"TC"	5	"Under Optics Table"
+"TC"	6	"On Optics Table"
+"TC"	7	"Liner - 3 o'clock"
+"TC"	8	"Optical Baffle"
+"TC"	9	"Motor Housing"
+"TC"	10	"Cold Plate"
+"TC"	11	"Outside Grating Base"
+"TC"	12	"Coolant to chiller (return)"
+"TC"	13	"Coolant from chiller (supply)"
+"PT"	14	"Target Chamber Vacuum"
+"PT"	15	"Collimator Vacuum"
+"PT"	16	"ARC VM-505 Vacuum"
+@

@@ -1,0 +1,432 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.7;
+
+1.7
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.11.54.25;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Handles semaphore and maintenance of transaction queues.
+One queue is available for each client.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#pragma implementation
+
+#include <string.h>
+#include <stdlib.h>
+
+#include "global.h"
+#include "stream.h"
+#include "queue.h"
+#include "periodic.h"
+
+Queue::Queue( void )
+{
+    pthread_mutexattr_t queue_mutex_attr ;
+
+    pthread_mutexattr_init( &queue_mutex_attr ) ;
+    pthread_mutexattr_settype( &queue_mutex_attr, PTHREAD_MUTEX_NORMAL ) ;
+    pthread_mutexattr_setprotocol( &queue_mutex_attr, PTHREAD_PRIO_INHERIT ) ;
+    pthread_mutex_init( &queue_mutex, &queue_mutex_attr ) ;
+    pthread_mutex_lock( &queue_mutex ) ;
+    pthread_mutex_unlock( &queue_mutex ) ;
+
+    InitQueue() ;
+}
+
+void Queue::InitQueue( void )
+{
+    pthread_mutex_lock( &queue_mutex ) ;
+
+    max_q_length = 0 ;
+    b_queue = 0 ;
+    e_queue = MaxQ-1 ; 
+
+    for( int i = 0 ; i < MaxQ ; i++ ) {
+	strcpy( CP queues[i].request, "" ) ;
+	strcpy( CP queues[i].response, "" ) ;
+	queues[i].retval = -1 ;
+	pthread_cond_init( &(queues[i].sem_wait), NULL ) ;
+	pthread_cond_signal( &(queues[i].sem_wait) ) ;
+
+	pthread_mutexattr_t queues_mutex_attr ;
+	pthread_mutexattr_init( &queues_mutex_attr ) ;
+	pthread_mutexattr_settype( &queues_mutex_attr, PTHREAD_MUTEX_NORMAL ) ;
+	pthread_mutexattr_setprotocol( &queues_mutex_attr, PTHREAD_PRIO_INHERIT ) ;
+	pthread_mutex_init( &(queues[i].mx_sem_wait), &queues_mutex_attr ) ;
+	// pthread_mutex_init( &(queues[i].mx_sem_wait), NULL ) ;
+	pthread_mutex_unlock( &(queues[i].mx_sem_wait) ) ;
+
+	queues[i].mPeriodic = -1 ;
+	queues[i].inuse = false ;
+    }
+    pthread_mutex_unlock( &queue_mutex ) ;
+}
+
+int Queue::AddTransaction( u_char *request, bool waiting, int mperiodic )
+{
+    int retval = -1 ;
+
+    pthread_mutex_lock( &queue_mutex ) ;
+
+    for( int i = 0 ; i < MaxQ ; i++ ) {
+	if( queues[b_queue].inuse ) {
+	    b_queue = (b_queue + 1) % MaxQ ;
+	    continue ;
+	}
+	strncpy( CP queues[b_queue].request, CP request, MAX_Q_REQUEST ) ;
+	strcpy( CP queues[b_queue].response, "" ) ;
+	queues[b_queue].retval = 0 ;
+	queues[b_queue].inuse = true ;
+	queues[b_queue].waiting = waiting ;
+	queues[b_queue].mPeriodic = mperiodic ;
+	pthread_cond_init( &(queues[b_queue].sem_wait), NULL ) ;
+	retval = b_queue ;
+	DODBG(9)(DBGDEV, "addtrans: %d %s\n", b_queue, request ) ;
+	b_queue = (b_queue + 1) % MaxQ ;
+	break ;
+    }
+    int curr_q_length = 0 ;
+    for( int i = 0 ; i < MaxQ ; i++ ) 
+	if( queues[i].inuse ) curr_q_length++ ;
+    if( max_q_length < curr_q_length ) max_q_length = curr_q_length ;
+
+    if( retval < 0 ) {
+	DODBG(0)(DBGDEV, "No room bq=%d eq=%d.\n", b_queue, e_queue ) ;
+	for( int i = 0 ; i < MaxQ ; i++ ) {
+	    DODBG(0)(DBGDEV, "Queue %d %d %d %d %d <%s>\n",
+		i,
+		queues[i].retval,
+		queues[i].inuse,
+		queues[i].waiting,
+		queues[i].mPeriodic,
+		queues[i].request ) ;
+	}
+    }
+
+    pthread_mutex_unlock( &queue_mutex ) ;
+    return( retval ) ;
+}
+
+int Queue::WaitTransaction( int w_queue, int secs )
+{
+    int status ;
+    struct timespec waittime ;
+    struct timeval now ;
+    gettimeofday( &now, NULL ) ;
+    waittime.tv_sec = now.tv_sec + secs ;
+    waittime.tv_nsec = now.tv_usec * 1000 ;
+
+    status = pthread_mutex_lock( &(queues[w_queue].mx_sem_wait) ) ;
+    status = pthread_cond_timedwait( &(queues[w_queue].sem_wait), &(queues[w_queue].mx_sem_wait), &waittime ) ;
+    status = pthread_mutex_unlock( &(queues[w_queue].mx_sem_wait) ) ;
+
+    if( status == 0 ) return( 1 ) ;
+    else if( status == ETIMEDOUT ) return( 0 ) ;
+    else {
+	DODBG(0)(DBGDEV, "pthread_cond_timedwait failed with unexpected error: %d\r\n", status ) ;
+	abort() ;
+    }
+}
+
+void Queue::ReleaseTransaction( int w_queue )
+{
+    pthread_mutex_lock( &queue_mutex ) ;
+    queues[w_queue].inuse = false ;
+    if( queues[w_queue].mPeriodic >= 0 ) {
+	PeriodicQ->Enable( queues[w_queue].mPeriodic ) ;
+	queues[w_queue].mPeriodic = -1 ;
+    }
+    pthread_mutex_unlock( &queue_mutex ) ;
+}
+
+void Queue::ReleaseThisTransaction( void )
+{
+    pthread_mutex_lock( &queue_mutex ) ;
+    DODBG(9)(DBGDEV, "Release %d (P=%d)\n", e_queue, queues[e_queue].mPeriodic);
+
+    queues[e_queue].inuse = false ;
+    if( queues[e_queue].mPeriodic >= 0 ) {
+	PeriodicQ->Enable( queues[e_queue].mPeriodic ) ;
+	queues[e_queue].mPeriodic = -1 ;
+    }
+    pthread_mutex_unlock( &queue_mutex ) ;
+}
+
+int Queue::GetWaiting( void )
+{
+    DODBG(9)(DBGDEV, "Waiting q=%d is %d.\n", e_queue, queues[e_queue].waiting ) ;
+    return( queues[e_queue].waiting ) ;
+}
+
+void Queue::GetNextTransaction( void )
+{
+    pthread_mutex_lock( &queue_mutex ) ;
+    e_queue = (e_queue + 1) % MaxQ ;
+    DODBG(7)(DBGDEV, "get next: %d %s\n", e_queue, queues[e_queue].request ) ;
+    pthread_mutex_unlock( &queue_mutex ) ;
+}
+const u_char* Queue::GetRequest( void )
+{
+    return( queues[e_queue].request ) ;
+}
+
+void Queue::SetResponse( const void *response )
+{
+    // To make sure we don't send anything pathological, I'm 
+    // trimming at the earliest \r or \n.
+    if( response ) {
+	u_char *t_r = queues[e_queue].response ;
+	strncpy( CP t_r, CP response, MAX_Q_RESPONSE ) ;
+
+	u_char *p_eol = UCP strchr( CP t_r, '\n' ) ;
+	if( p_eol ) *p_eol = '\0' ;
+	p_eol = UCP strchr( CP t_r, '\r' ) ;
+	if( p_eol ) *p_eol = '\0' ;
+    } else {
+	strncpy( CP queues[e_queue].response, ERR_106_NULL, MAX_Q_RESPONSE ) ;
+    }
+}
+
+const u_char* Queue::GetResponse( int w_queue )
+{
+    return( queues[w_queue].response ) ;
+}
+
+void Queue::ReleaseWait( void )
+{
+    DODBG(8)(DBGDEV, "Release for %d\n", e_queue ) ;
+    pthread_cond_signal( &(queues[e_queue].sem_wait) ) ;
+}
+
+int Queue::MaxQueue( void )
+{
+    return( max_q_length ) ;
+}
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.7
+log
+@Working Version. SRS630 included.
+@
+text
+@d4 1
+d15 3
+a17 1
+    pthread_mutexattr_settype( &queue_mutex_attr, PTHREAD_MUTEX_FAST_NP ) ;
+d37 1
+d39 9
+a47 2
+	pthread_cond_init( &(queues[i].sem_wait), NULL ) ;
+	pthread_mutex_init( &(queues[i].mx_sem_wait), NULL ) ;
+d108 10
+a117 3
+    status = pthread_cond_timedwait( &(queues[w_queue].sem_wait), 
+	&(queues[w_queue].mx_sem_wait), &waittime ) ;
+    return( (status==0) ) ;
+@
+
+
+1.6
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d146 2
+d149 7
+a155 1
+	strncpy( CP queues[e_queue].response, CP response, MAX_Q_RESPONSE ) ;
+d157 1
+a157 1
+	strncpy( CP queues[e_queue].response, "", MAX_Q_RESPONSE ) ;
+@
+
+
+1.5
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@a11 3
+    q_length = 0 ;
+    b_queue = 0 ;
+    e_queue = MaxQ-1 ; 
+d19 11
+d34 1
+d40 1
+d62 1
+a62 1
+	DOLOG(11)(LOGDEV, "addtrans: %d %s\n", b_queue, request ) ;
+d66 17
+d99 1
+a99 1
+    return 0 ;
+d116 1
+a116 1
+    DOLOG(9)(LOGDEV, "Release %d (P=%d)\n", e_queue, queues[e_queue].mPeriodic);
+d128 1
+a128 1
+    DOLOG(11)(LOGDEV, "Waiting q=%d is %d.\n", e_queue, queues[e_queue].waiting ) ;
+d136 1
+a136 1
+    DOLOG(0)(LOGDEV, "get next: %d %s\n", e_queue, queues[e_queue].request ) ;
+d160 1
+a160 1
+    DOLOG(8)(LOGDEV, "Release for %d\n", e_queue ) ;
+d164 4
+@
+
+
+1.4
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d89 2
+@
+
+
+1.3
+log
+@Working.
+@
+text
+@d52 1
+a52 1
+	DOLOG(9)(LOGDEV, "addtrans: %d %s\n", b_queue, request ) ;
+@
+
+
+1.2
+log
+@Working. Supports SR630.
+@
+text
+@d14 1
+a14 1
+    e_queue = MAXQ-1 ; 
+d22 1
+a22 1
+    for( int i = 0 ; i < MAXQ ; i++ ) {
+d39 1
+a39 1
+    for( int i = 0 ; i < MAXQ ; i++ ) {
+d41 1
+a41 1
+	    b_queue = (b_queue + 1) % MAXQ ;
+d53 1
+a53 1
+	b_queue = (b_queue + 1) % MAXQ ;
+d99 1
+d106 1
+a106 1
+    e_queue = (e_queue + 1) % MAXQ ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a0 2
+#define FILE_H_NEED (3)
+
+d8 1
+a25 1
+	// sem_init( &(queues[i].sem_wait), 0, 1 ) ;
+d28 1
+d33 1
+a33 1
+int Queue::AddTransaction( u_char *request )
+d39 1
+a39 1
+    while( b_queue != e_queue ) {
+d44 1
+a44 1
+	strncpy( CP queues[b_queue].request, CP request, MAX_REQUEST ) ;
+d48 2
+a49 1
+	// sem_init( &(queues[b_queue].sem_wait), 0, 0 ) ;
+d52 1
+a52 1
+	DOLOG(0)(LOGDEV, "addtrans: %d %s\n", b_queue, request ) ;
+d58 1
+a69 1
+    // sem_wait( &(queues[w_queue].sem_wait) ) ;
+d79 4
+d86 16
+d114 1
+a114 1
+void Queue::SetResponse( const u_char *response )
+d116 5
+a120 1
+    strncpy( CP queues[e_queue].response, CP response, MAX_RESPONSE ) ;
+d130 1
+a130 2
+    DOLOG(0)(LOGDEV, "Release for %d\n", e_queue ) ;
+    // sem_post( &(queues[e_queue].sem_wait) ) ;
+@

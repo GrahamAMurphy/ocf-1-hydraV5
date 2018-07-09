@@ -1,0 +1,15 @@
+# Name       Type         Setup Information
+#
+Epoch	1291992075.0 # Unix time offset for 2010 December.
+
+<Sequencer>    			network-server
+options	<Sequencer>    		<port=5000> 
+
+
+<Newmark>     network-client-Newmark
+options <Newmark>     <target=192.168.59.6,port=23>
+
+options	<Sequencer>    		<enable>
+options <Newmark>           	<enable>
+
+exit

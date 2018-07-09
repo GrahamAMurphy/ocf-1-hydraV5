@@ -1,0 +1,164 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.4;
+
+1.4
+date	2004.09.10.11.43.48;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.09.16.15.44;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.09.01.47.37;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working version. About to change i/o handling.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __HTTPServer_h__
+#define __HTTPServer_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+#include <pthread.h>
+
+#include "server.h"
+#include "support.h"
+
+class HTTPServer : public Server {
+    int nfds ;
+    static const int MaxConn = 32 ;
+    int fds[MaxConn] ;
+    int request[MaxConn] ;
+    int req_last[MaxConn] ;
+    time_t time_last[MaxConn] ;
+
+    void Deliver( int ) ;
+    int GraspGet( int ) ;
+    void NumConnections( void ) ;
+    int DeliverOne( int, int ) ;
+    void ConnectionClose( int ) ;
+    void ConnectionOff( int ) ;
+    void ExecuteCommand( u_char* ) ;
+    void Loop( void ) ;
+    void WireConnection( void ) ;
+    void ReceiveConnection( int ) ;
+    time_t created[MaxConn] ;
+    void MeetRequest( int ) ;
+public:
+    HTTPServer() ;
+    ~HTTPServer() ;
+    void RunThread( void ) ;
+    void Preamble( void ) ;
+    void Body( u_char*, u_char*, u_char*, u_char*, int, int ) ;
+    void Postamble( void ) ;
+    void BuildStatus( int ) ;
+    void PleaseReport( int, int ) ;
+} ;
+
+EXTERN HTTPServer *HTTP INITVALUE(0) ;
+#endif // __HTTPServer_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.4
+log
+@Working system. Backing up.
+@
+text
+@d31 1
+a31 1
+    time_t created[8] ;
+d38 1
+a38 1
+    void Body( u_char*, u_char*, u_char*, u_char*, int ) ;
+@
+
+
+1.3
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d36 1
+a36 1
+    virtual void RunThread( void ) ;
+d38 1
+a38 1
+    void Body( u_char*, u_char*, u_char*, u_char* ) ;
+d41 1
+a41 1
+    virtual void PleaseReport( int, int ) ;
+@
+
+
+1.2
+log
+@Working.
+@
+text
+@d40 1
+a40 1
+    void BuildStatus( void ) ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d17 4
+d23 1
+d25 1
+a25 1
+    void DeliverAll( void ) ;
+d27 6
+a32 1
+    void RequestUpdate( u_char* ) ;
+d35 1
+d41 1
+@

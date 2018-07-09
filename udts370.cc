@@ -1,0 +1,329 @@
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "udts370.h"
+#include "support.h"
+#include "periodic.h"
+
+UDTS370::UDTS370( void )
+{
+    devtype = TypeUDTS370 ;
+    devtypestring = "UDT S370" ;
+    cycle = 10000 ; // 10.0 secs
+    delay = 10000 ; // 10.0 secs
+    s370_calset = 3 ;
+    s370_wavelength = 400 ;
+    strcpy( CP s370_units, "W" ) ;
+
+    DODBG(9)(DBGDEV, "Leaving udts370 constructor.\n" ) ; 
+}
+
+void UDTS370::StartOps( void )
+{
+    DODBG(9)(DBGDEV, "%s: UDTS370 being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( 5 ) ; // One key state.
+
+    u_char temp[256] ;
+    snprintf( CP temp, 256, "%s get", getAlias() ) ;
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp ) ;
+
+    StartThread() ;
+}
+
+void UDTS370::StartPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->SetPeriod( mPeriodics[i], cycle ) ;
+	PeriodicQ->Schedule( mPeriodics[i], delay ) ;
+	PeriodicQ->Enable( mPeriodics[i] ) ;
+    }
+}
+
+void UDTS370::StopPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->Disable( mPeriodics[i] ) ;
+    }
+}
+
+int UDTS370::SetCalibration( int calset )
+{
+    u_char ucCommand[256] ;
+    u_char tmp[256] ;
+
+    sprintf( CP ucCommand, "/K%1d", calset ) ;
+
+    int nexc = Exchange( ucCommand, w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+    if( nexc < 0 ) return(false) ;
+
+    nexc = Exchange( "/G", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+    if( nexc < 0 ) return( false ) ;
+
+    s370_calset = calset ;
+    snprintf( CP tmp, sizeof(tmp), "%d", s370_calset ) ;
+    AddStatus( 2, UCP "Calibration Set", tmp ) ;
+    return( true ) ;
+}
+
+int UDTS370::SetWavelength( int wlen )
+{
+    u_char ucCommand[256] ;
+    u_char tmp[256] ;
+
+    sprintf( CP ucCommand, "/W%d", wlen ) ;
+    int nexc = Exchange( ucCommand, w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+    if( nexc < 0 ) return(false) ;
+
+    nexc = Exchange( "/G", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+    if( nexc < 0 ) return( false ) ;
+
+    s370_wavelength = wlen ;
+    snprintf( CP tmp, sizeof(tmp), "%d", s370_wavelength ) ;
+    AddStatus( 3, UCP "Wavelength*", tmp ) ;
+    return( true ) ;
+}
+
+int UDTS370::SetUnits( u_char *ucUnits )
+{
+    u_char tmp[256] ;
+    int nexc ;
+
+    if( STRCASECMP( ucUnits, "w" ) == 0 ) {
+	nexc = Exchange( "/V1", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+	if( nexc < 0 ) return( false) ;
+    } else if( STRCASECMP( ucUnits, "fc" ) == 0 ) {
+	nexc = Exchange( "/V2", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+	if( nexc < 0 ) return( false) ;
+    } else if( STRCASECMP( ucUnits, "lux" ) == 0 ) {
+	nexc = Exchange( "/V3", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+	if( nexc < 0 ) return( false) ;
+    } else if( STRCASECMP( ucUnits, "f" ) == 0 ) {
+	nexc = Exchange( "/V4", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+	if( nexc < 0 ) return( false) ;
+    } else if( STRCASECMP( ucUnits, "w/cm2" ) == 0 ) {
+	nexc = Exchange( "/V5", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+	if( nexc < 0 ) return( false) ;
+    } else if( STRCASECMP( ucUnits, "w/cm2*sr" ) == 0 ) {
+	nexc = Exchange( "/V6", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+	if( nexc < 0 ) return( false) ;
+    } else if( STRCASECMP( ucUnits, "cd/m2" ) == 0 ) {
+	nexc = Exchange( "/V7", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+	if( nexc < 0 ) return( false) ;
+    } else if( STRCASECMP( ucUnits, "lm" ) == 0 ) {
+	nexc = Exchange( "/V8", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+	if( nexc < 0 ) return( false) ;
+    } else {
+	return( false) ;
+    }
+
+    nexc = Exchange( "/G", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+    if( nexc < 0 ) return( false ) ;
+
+    nexc = Exchange( "U", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+    if( nexc < 0 ) return( false ) ;
+
+    strncpy( CP s370_units, CP tmp, sizeof(s370_units) ) ;
+    AddStatus( 4, UCP "Units", s370_units ) ;
+    return( true ) ;
+}
+
+int UDTS370::DeviceOpen( void )
+{
+    u_char tmp[256] ;
+    int nexc ;
+    int bStatus ;
+
+    nexc = Exchange( "B0", w_timeo, tmp, sizeof(tmp), -r_timeo ) ;
+    if( nexc < 0 ) return( false ) ;
+    sleep(2) ;
+
+    bStatus = SetCalibration( s370_calset ) ;
+    if( ! bStatus ) return( false ) ;
+    sleep(1) ;
+
+    bStatus = SetWavelength( s370_wavelength ) ;
+    if( ! bStatus ) return( false ) ;
+    sleep(1) ;
+
+    bStatus = SetUnits( s370_units ) ;
+    if( ! bStatus ) return( false ) ;
+    sleep(1) ;
+
+    StartPeriodicTasks() ;
+    return( true ) ;
+}
+
+void UDTS370::DeviceClose( void )
+{
+    StopPeriodicTasks() ;
+}
+
+#define NOSTATUS        NoStatus(0)
+
+int UDTS370::AddressWavelength( u_char *resp, int mlen )
+{
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+	snprintf( CP resp, mlen, "%d", s370_wavelength ) ;
+        return( true ) ;
+    }
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "set" ) == 0 ) {
+	int iWavelength = strtol( CP client_cmd.cmd[3], NULL, 0 ) ;
+	int bStatus = SetWavelength( iWavelength ) ;
+	snprintf( CP resp, mlen, "%d", s370_wavelength ) ;
+	if( ! bStatus ) return( false ) ;
+        return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+
+}
+
+int UDTS370::AddressCalibrationSet( u_char *resp, int mlen )
+{
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+	snprintf( CP resp, mlen, "%d", s370_calset ) ;
+        return( true ) ;
+    }
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "set" ) == 0 ) {
+	int iCalSet = strtol( CP client_cmd.cmd[3], NULL, 0 ) ;
+	int bStatus = SetCalibration( iCalSet ) ;
+	snprintf( CP resp, mlen, "%d", s370_calset ) ;
+	if( ! bStatus ) return( false ) ;
+        return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+
+}
+
+int UDTS370::AddressUnits( u_char *resp, int mlen )
+{
+    if( client_cmd.nCmds==3 && STRCASECMP( client_cmd.cmd[2], "get" ) == 0 ) {
+	snprintf( CP resp, mlen, "%s", s370_units ) ;
+        return( true ) ;
+    }
+
+    if( client_cmd.nCmds==4 && STRCASECMP( client_cmd.cmd[2], "set" ) == 0 ) {
+	int bStatus = SetUnits( client_cmd.cmd[3] ) ;
+	snprintf( CP resp, mlen, "%s", s370_units ) ;
+	if( ! bStatus ) return( false ) ;
+        return( true ) ;
+    } 
+
+    DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[2] ) ;
+    snprintf( CP resp, mlen, ERR_408_BADCMD ": %s to %s", client_cmd.cmd[2], name ) ; 
+
+    return( true ) ;
+
+}
+
+// Only returns false if we deem a communication error demands or implies
+// a disconnect.
+int UDTS370::AddressUDTS370( u_char *resp, int mlen )
+{
+    u_char tmpV[256] ;
+    u_char tmpS[256] ;
+
+    int nexc = Exchange( "F", w_timeo, tmpV, sizeof(tmpV), r_timeo ) ;
+    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false) ; } 
+    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen) ; return(true) ; } 
+    AddStatus( 0, UCP "Value", tmpV ) ;
+
+    nexc = Exchange( "S", w_timeo, tmpS, sizeof(tmpS), r_timeo ) ;
+    if( nexc < 0 ) { NOSTATUS; SET_406_BADCON(resp,mlen); return(false) ; } 
+    if( nexc == 0 ) { NOSTATUS; SET_407_DEVTO(resp,mlen) ; return(true) ; } 
+    AddStatus( 1, UCP "State", tmpS ) ;
+
+    int iWavelength ;
+    int nscan = sscanf( CP tmpS, "%*s %d %*s %*s", &iWavelength ) ;
+    if( nscan == 1 ) {
+	u_char tmp[256] ;
+	s370_wavelength = iWavelength ;
+	snprintf( CP tmp, sizeof(tmp), "%d", s370_wavelength ) ;
+	AddStatus( 3, UCP "Wavelength", tmp ) ;
+    }
+
+    sprintf( CP resp, "%s / %s", tmpV, tmpS ) ;
+    return( true ) ;
+}
+
+int UDTS370::HandleRequest( void )
+{
+    if( Client::HandleRequest() )
+	return( true ) ;
+
+    if( client_cmd.nCmds < 2 ) {
+	mQueue->SetResponse( ERR_408_BADCMD ) ;
+	return( true ) ; // null or pointless command, but not a nasty error.
+    }
+
+    u_char response[256] ;
+    int retval = 0 ;
+
+    if( strcasecmp( CP client_cmd.cmd[1], "get" ) == 0 ) {
+        retval = AddressUDTS370( response, sizeof(response) ) ;
+
+    } else if( strcasecmp( CP client_cmd.cmd[1], "wlen" ) == 0 ) {
+        retval = AddressWavelength( response, sizeof(response) ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "cal" ) == 0 ) {
+        retval = AddressCalibrationSet( response, sizeof(response) ) ;
+    } else if( strcasecmp( CP client_cmd.cmd[1], "units" ) == 0 ) {
+        retval = AddressUnits( response, sizeof(response) ) ;
+    } else {
+        DODBG(0)(DBGDEV, "Unknown command: %s\n", client_cmd.cmd[1] ) ;
+        snprintf( CP response, sizeof(response), ERR_408_BADCMD ": %s to %s",
+        client_cmd.cmd[1], name ) ; 
+        retval = true ;
+    }
+
+    mQueue->SetResponse( response ) ; 
+    DODBG(0)( DBGDEV, "client response %s: <%s>\n", name, response ) ;
+    StatusLog->L_Command_U( name, mQueue->GetRequest(), response ) ; 
+    return( retval ) ;
+}
+
+static const char* cClientOptions[] = {
+    "get",
+    "wlen get",
+    "wlen set %d",
+    "cal get",
+    "cal set %1d",
+    "units get",
+    "units set %s"
+    } ;
+
+int UDTS370::ListOptions( int iN, u_char *cOption, int iOptionLength )
+{
+    int M = 0 ;
+    strcpy( CP cOption, "" ) ;
+
+    int iMax = sizeof(cClientOptions)/sizeof(char*) ;
+
+    if( 0 <= iN && iN < iMax ) {
+        strncpy( CP cOption, cClientOptions[iN], iOptionLength ) ;
+	M = strlen( CP cOption ) ;
+    } else {
+	M = Client::ListOptions( iN-iMax, cOption, iOptionLength ) ;
+    }
+    return( M ) ;
+}
+

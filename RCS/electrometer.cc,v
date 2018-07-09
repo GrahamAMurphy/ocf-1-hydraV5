@@ -1,0 +1,297 @@
+head	1.4;
+access;
+symbols;
+locks
+	murphy:1.4; strict;
+comment	@// @;
+
+
+1.4
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working.
+@
+
+
+1.4
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "client.h"
+#include "electrometer.h"
+#include "support.h"
+#include "periodic.h"
+
+Electrometer::Electrometer( void )
+{
+    r_timeo = 1000 ; // 1.0 secs
+    w_timeo = 5000 ; // 5.0 secs
+    devtype = TypeElectrometer ;
+    devtypestring = "KE 617" ;
+    cycle = 10000 ; // 10.0 secs
+    DOLOG(9)(LOGDEV, "Leaving electrometer constructor.\n" ) ; 
+}
+
+void Electrometer::StartOps( void )
+{
+    DOLOG(9)(LOGDEV, "%s: Electrometer being started up.\n", name ) ;
+    mStatus = OCF_Status->RequestStatus( 1 ) ; // One key state.
+
+    u_char temp[256] ;
+    snprintf( CP temp, 256, "%s get", getAlias() ) ;
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp ) ;
+
+    StartThread() ;
+}
+
+void Electrometer::StartPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->SetPeriod( mPeriodics[i], cycle ) ;
+	PeriodicQ->Schedule( mPeriodics[i], delay ) ;
+	PeriodicQ->Enable( mPeriodics[i] ) ;
+    }
+}
+
+void Electrometer::StopPeriodicTasks( void )
+{
+    for( int i = 0 ; i < nPeriodics ; i++ ) {
+	PeriodicQ->Disable( mPeriodics[i] ) ;
+    }
+}
+
+int Electrometer::DeviceOpen( void )
+{
+    StartPeriodicTasks() ;
+    return( true ) ;
+}
+
+void Electrometer::DeviceClose( void )
+{
+    StopPeriodicTasks() ;
+}
+
+// Only returns false if we deem a communication error demands or implies
+// a disconnect.
+int Electrometer::AddressElectrometer( u_char *resp, int mlen )
+{
+    if( strcasecmp( CP client_cmd.cmd[1], "get" ) == 0 ) {
+        int nexc = Exchange( UCP "X", w_timeo, resp, mlen, r_timeo ) ;
+        if( nexc <= 0 ) return( (nexc==0) ) ;
+
+	double value = 0;
+	u_char quantity[64] ;
+	int nscan = sscanf( CP resp, "%4s%lf", quantity, &value ) ;
+	if( nscan != 2 ) return( true ) ; // Not grounds for disconnect.
+
+	u_char c_value[64] ;
+	snprintf( CP c_value, 64, "%.4e", value ) ;
+
+	AddStatus( 0, quantity, c_value ) ;
+	return( true ) ;
+    }
+
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", client_cmd.cmd[1] ) ;
+    return( true ) ;
+}
+
+int Electrometer::HandleRequest( void )
+{
+    if( Client::HandleRequest() )
+	return( true ) ;
+
+    if( client_cmd.nCmds != 2 ) {
+	return( true ) ; // null or pointless command, but not a nasty error.
+    }
+
+    u_char response[256] ;
+
+    if( ! AddressElectrometer( response, sizeof(response) ) )
+	return( false ) ;
+
+    DOLOG(0)( LOGDEV, "client response %s: <<%s>>\n", name, response ) ;
+
+    StatusLog->L_Command_U( name, mQueue->GetRequest(), response ) ;
+    mQueue->SetResponse( response ) ;
+
+    return( true ) ;
+}
+@
+
+
+1.3
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d36 1
+a36 1
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp, cycle ) ;
+d41 1
+a41 1
+int Electrometer::ConnectionStarted( void )
+a42 2
+    DisplayConnection() ;
+
+d44 2
+a45 1
+	PeriodicQ->Schedule( mPeriodics[i], cycle/2 + 1000*(i + 2*getDevice()));
+a47 1
+    return( true ) ;
+d50 1
+a50 1
+void Electrometer::ConnectionEnded( void )
+d55 11
+a65 1
+    Client::ConnectionEnded() ;
+d70 1
+a70 1
+int Electrometer::AddressElectrometer( sCmd input, u_char *resp, int mlen )
+d72 3
+a74 2
+    int nwrite ;
+    int nread ;
+a75 14
+    FlushStream( fd ) ;
+    *resp = '\0' ;
+
+    if( strcasecmp( CP input.cmd[1], "get" ) == 0 ) {
+	nwrite = WriteStream( UCP "X", w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( resp, mlen, r_timeo ) ;
+	if( nread < 0 ) return( false ) ;
+	if( nread == 0 ) {
+	    fprintf( stderr, "Timeout %s\n", name ) ;
+	    errors++ ;
+	    return( true ) ;
+	}
+	strchomp( resp ) ;
+d79 2
+a80 2
+	if( nscan != 2 ) {
+	}
+d88 1
+a88 1
+    DOLOG(0)(LOGDEV, "Unknown command: %s\n", input.cmd[1] ) ;
+d94 2
+a95 1
+    u_char response[256] = "EMPTY" ;
+d97 3
+a99 2
+    const u_char *request ;
+    mQueue->GetNextTransaction() ;
+d101 1
+a101 2
+    request = mQueue->GetRequest() ;
+    DOLOG(0)( LOGDEV, "client request %s: <%s>\n", name, request ) ;
+d103 1
+a103 9
+    mQueue->SetResponse( NULL ) ;
+
+    sCmd s_cmd ;
+    int ncmds = TokenizeRequest( request, s_cmd ) ;
+    if( ncmds != 2 ) {
+	return( true ) ; // null or pointless command, but not an error.
+    }
+
+    if( ! AddressElectrometer( s_cmd, response, sizeof(response) ) )
+d108 1
+a108 4
+    StatusLog->Lock() ;
+    StatusLog->Write( name, "CMD", request ) ;
+    StatusLog->Write( name, "RTN", response ) ;
+    StatusLog->Unlock() ;
+a112 1
+
+@
+
+
+1.2
+log
+@Working for CRISM config.
+@
+text
+@d25 1
+d36 1
+a36 1
+    mPeriodics[0] = PeriodicQ->Add( getDevice(), temp, 10000 ) ;
+d46 1
+a46 1
+	PeriodicQ->Schedule( mPeriodics[i], 10000 + 3000*i ) ;
+d74 6
+a79 1
+	if( nread <= 0 ) return( false ) ;
+d83 1
+a83 1
+	int nscan = sscanf( CP resp, "%s %lf", quantity, &value ) ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d61 1
+a61 1
+int Electrometer::AddressFilter( sCmd input, u_char *resp, int mlen )
+a62 1
+    u_char command[256] ;
+d70 1
+a70 1
+	nwrite = WriteStream( UCP "?FILTER", w_timeo ) ;
+d75 9
+a83 1
+	AddStatus( 0, UCP "Position", resp ) ;
+a86 11
+    if( ! input.cmd[2] ) return( true ) ;
+
+    if( strcasecmp( CP input.cmd[1], "set" ) == 0 ) {
+	snprintf( CP command, sizeof(command), "%s FILTER", input.cmd[2] ) ;
+	nwrite = WriteStream( command, w_timeo ) ;
+	if( nwrite <= 0 ) return( false ) ;
+	nread = ReadStream( resp, mlen, r_timeo ) ;
+	if( nread <= 0 ) return( false ) ;
+	return( true ) ;
+    } 
+
+d105 1
+a105 1
+    if( ncmds < 2 ) {
+d109 1
+a109 1
+    if( ! AddressFilter( s_cmd, response, sizeof(response) ) )
+@

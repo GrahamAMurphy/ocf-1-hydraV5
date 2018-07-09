@@ -1,0 +1,1271 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.13;
+
+1.13
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.12;
+
+1.12
+date	2004.08.04.11.36.28;	author murphy;	state Exp;
+branches;
+next	1.11;
+
+1.11
+date	2004.07.30.15.40.47;	author murphy;	state Exp;
+branches;
+next	1.10;
+
+1.10
+date	2004.07.22.18.34.23;	author murphy;	state Exp;
+branches;
+next	1.9;
+
+1.9
+date	2004.07.13.13.10.21;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.11.02.35.12;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.09.01.47.21;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working version. About to change i/o handling.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <fcntl.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+#include <sys/types.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "httpserver.h"
+#include "support.h"
+
+static char data_page[65536] ;
+static int l_page = 0 ;
+static char the_intro[1024] ;
+static int l_intro = 0 ;
+
+static char stat_page[65536] ;
+static int l_status = 0 ;
+static char stat_intro[1024] ;
+static int l_status_intro = 0 ;
+
+static char basic_intro[] =
+"HTTP/1.1 200 OK\r\n"
+"Content-Length: %d\r\n"
+"Content-type: text/html\r\n"
+"\r\n" ;
+
+static char main_page[] = 
+"<HTML>\r\n"
+"<HEAD>\r\n"
+"<TITLE>Status</TITLE>\r\n"
+"</HEAD>\r\n"
+"<FRAMESET COLS=\"45%,*\">\r\n"
+"<FRAME src=\"/data.html\">\r\n"
+"<FRAMESET ROWS=\"350,*\">\r\n"
+"<FRAME src=\"/extended.html\">\r\n"
+"<FRAME src=\"/stats.html\">\r\n"
+"</FRAMESET>\r\n"
+"</FRAMESET>\r\n"
+"</HTML>\r\n"
+"\r\n" ;
+
+static char h204_intro[] =
+"HTTP/1.1 204 OK\r\n"
+"Connection: close\r\n"
+"Content-type: text/html\r\n"
+"\r\n" ;
+
+#include "form_page.cc"
+
+static char form_page[] = 
+"<HTML>\r\n"
+"<HEAD>\r\n"
+"<TITLE>Update</TITLE>\r\n"
+"<style type=\"text/css\">\r\n"
+"input { font: 10px }\r\n"
+"</style>\r\n"
+"</HEAD>\r\n"
+"<BODY>\r\n"
+"<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"Open Attenuator\">\r\n"
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"sphere attenuator 1 set 0\">\r\n"
+"</FORM>\r\n"
+"<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"Close Attenuator\">\r\n"
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"sphere attenuator 1 set 255\">\r\n"
+"</FORM>\r\n"
+"<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"CMD\">\r\n"
+"<INPUT TYPE=\"TEXT\" NAME=\"INPUT\" VALUE=\"\" SIZE=\"48\">\r\n"
+"</FORM>\r\n"
+"<A HREF=\"/extended.html\"> Extended Commanding </A>\r\n"
+"</BODY>\r\n"
+"</HTML>\r\n"
+"\r\n" ;
+
+// char *form_page = form_page_l ;
+
+
+void HTTPServer::Deliver( int fd )
+{
+    char temp[64] ;
+    snprintf( temp, 64, basic_intro, sizeof(main_page) ) ;
+    write( fd, temp, strlen(temp) ) ;
+    write( fd, main_page, sizeof(main_page) ) ;
+}
+
+enum iPage { eMain=1, eForm=2, eLog=3, eStatus=4, eLong=5, eQuery=6 } ;
+
+HTTPServer::HTTPServer()
+{
+    uc_bind_port = http_port ;
+    nfds = 0 ;
+    for( int i = 0 ; i < MaxConn ; i++ ) {
+	fds[i] = -1 ;
+	request[i] = 0 ;
+    }
+
+    devtype = TypeHTTP ;
+    devtypestring = "HTTP Server" ;
+    for( int i = 0 ; i < MaxConn ; i++ ) created[i] = 0 ;
+
+    time( created+eMain ) ; // Opening page is always available.
+    time( created+eForm ) ; // Form page is always available.
+    time( created+eLong ) ; // Long Form page is always available.
+    time( created+eQuery ) ; // Query page is always available.
+
+    DODBG(11)(DBGDEV, "Leaving http server constructor.\n" ) ;
+}
+
+HTTPServer::~HTTPServer()
+{
+    DODBG(11)(DBGDEV, "http server destructor.\n" ) ;
+    for( int i = 0 ; i < MaxConn ; i++ ) {
+	if( fds[i] < 0 ) continue ;
+	write( fds[i], h204_intro, sizeof(h204_intro) ) ;
+	// shutdown( fds[i], 2 ) ;
+	close( fds[i] ) ;
+    }
+}
+
+void HTTPServer::ConnectionOff( int fd_x )
+{
+    shutdown( fd_x, 2 ) ;
+    close( fd_x ) ;
+    DODBG(11)( DBGDEV, "Closing http connection.\n" ) ;
+}
+
+void HTTPServer::RunThread( void )
+{
+    while( true ) {
+	if( ! CreateAndBind() ) {
+	    DODBG(0)( DBGDEV, "http server could not operate.\n" ) ;
+	    return ;
+	}
+
+	if( listen(fdnet, -1) < 0 ) {
+	    perror( "listen" ) ;
+	    DODBG(0)( DBGDEV, "Error in http server listen.\n" ) ;
+	    return ;
+	}
+	DODBG(11)( DBGDEV, "Listen succeeded for %s.\n", name ) ;
+
+	fds[0] = fdnet ;
+
+	Loop() ;
+
+	Unbind() ;
+    }
+}
+
+void HTTPServer::Loop( void )
+{
+    fd_set inpmask ;
+    struct timeval timeout ;
+    int i, n_fds, selectmax ;
+
+    while( true ) {
+	selectmax = 0 ;
+	FD_ZERO( &inpmask ) ;
+
+	for( i = 0 ; i < MaxConn ; i++ ) {
+	    if( fds[i] < 0 ) continue ;
+	    FD_SET( fds[i], &inpmask ) ;
+	    if( selectmax < fds[i] )
+		selectmax = fds[i] ;
+	}
+
+	NumConnections() ;
+
+	selectmax++ ;
+	timeout.tv_sec = 0 ;
+	timeout.tv_usec = 500000 ;
+
+        n_fds = select( selectmax, &inpmask, NULL, NULL, &timeout ) ;
+
+	for( i = 1 ; i < MaxConn ; i++ ) {
+	    if( request[i] )
+		MeetRequest( i ) ;
+	}
+
+        if( n_fds == 0 ) continue ;
+
+        if( n_fds < 0 ) {
+            if( errno == 0 || errno == EINTR ) {
+                continue ;
+            } else {
+                perror( "select" ) ;
+                DODBG(0)( DBGDEV, "Fatal error in Loop/select. Sorry!\n" ) ;
+                exit(1) ;
+            }
+        }
+
+        for( i = 1 ; i < selectmax ; i++ ) {
+	    if( fds[i] < 0 ) continue ;
+	    if( FD_ISSET( fds[i], &inpmask ) ) 
+		ReceiveConnection( i ) ;
+        }
+
+	if( FD_ISSET( fds[0], &inpmask ) ) {
+	    AcceptConnection() ;
+	    WireConnection() ;
+	    DODBG(11)(DBGDEV, "Accepted connection.\n" ) ;
+	}
+    }
+}
+
+void HTTPServer::WireConnection( void )
+{
+    int file_status ;
+    file_status = fcntl( fd, F_GETFL ) ;
+    file_status |= O_NONBLOCK ;
+    int status = fcntl( fd, F_SETFL, file_status ) ;
+    if( status ) perror( "socket setfl" ) ;
+
+    DODBG(11)(DBGDEV, "Adding HTTP connection fd=%d.\n", fd ) ;
+    for( int i = 0 ; i < MaxConn ; i++ ) {
+	if( fds[i] >= 0 ) continue ;
+	fds[i] = fd ; fd = -1 ;
+	time_last[i] = 0 ;
+	request[i] = 0 ;
+	req_last[i] = -1 ;
+	break ;
+    }
+    if( fd ) ConnectionOff( fd ) ;
+    NumConnections() ;
+    DODBG(11)(DBGDEV, "%d connections.\n", nfds ) ;
+}
+
+void HTTPServer::NumConnections( void )
+{
+    nfds = 0 ;
+    for( int i = 1 ; i < MaxConn ; i++ ) {
+	if( fds[i] >= 0 ) nfds++ ;
+    }
+}
+
+static int iWidth[4] = { 5, 5, 5, 5 } ;
+
+void HTTPServer::Preamble( void )
+{
+    l_intro = 0 ;
+    l_page = 0 ;
+    created[eLog] = 0 ;
+
+    strcpy( data_page, "<html>\r\n" ) ;
+    strcat( data_page, "<head>\r\n" ) ;
+    strcat( data_page, "<META HTTP-EQUIV=\"REFRESH\" CONTENT=\"1\">\r\n" ) ;
+    strcat( data_page, "<style>\r\n" ) ;
+    strcat( data_page, "TD { white-space: nowrap ; padding-left : 5pt ; padding-right : 5pt } \r\n" ) ;
+    strcat( data_page, "</style>\r\n" ) ;
+    strcat( data_page, "</head>\r\n" ) ;
+    strcat( data_page, "<body>\r\n" ) ;
+    strcat( data_page, "<table rules=\"all\" border=\"1\" style=\"font-size: 8pt ; \" cellspacing=\"0\" cellpadding=\"1\" >\r\n" ) ;
+    strcat( data_page, "<colgroup>\r\n" ) ;
+
+    #if 0
+    int M = strlen( data_page ) ;
+
+    M += snprintf( data_page+M, sizeof(data_page)-M, "<col width=\"*\">\r\n" ) ;
+    M += snprintf( data_page+M, sizeof(data_page)-M, "<col width=\"*\">\r\n" ) ;
+    M += snprintf( data_page+M, sizeof(data_page)-M, "<col width=\"*\">\r\n" ) ;
+    M += snprintf( data_page+M, sizeof(data_page)-M, "<col width=\"120\">\r\n" ) ;
+    #else
+
+    int M = strlen( data_page ) ;
+
+    M += snprintf( data_page+M, sizeof(data_page)-M, "<col width=\"%d\">\r\n", 8*iWidth[0] ) ;
+    M += snprintf( data_page+M, sizeof(data_page)-M, "<col width=\"%d\">\r\n", 8*iWidth[1] ) ;
+    M += snprintf( data_page+M, sizeof(data_page)-M, "<col width=\"%d\">\r\n", 8*iWidth[2] ) ;
+    M += snprintf( data_page+M, sizeof(data_page)-M, "<col width=\"%d\">\r\n", 8*iWidth[3] ) ;
+
+    iWidth[0] = 5 ;
+    iWidth[1] = 5 ;
+    iWidth[2] = 5 ;
+    iWidth[3] = 5 ;
+
+    #endif
+}
+
+void HTTPServer::Body( u_char *name, u_char *key, u_char *value, u_char *age, int n_attempts, int updated )
+{
+    int l_name  = name ? strlen(CP name) : 0 ;
+    int l_key = key ? strlen( CP key ) : 0 ;
+    int l_value = value ? strlen( CP value ) : 0 ;
+
+    if( l_name > 256 ) l_name = 256 ;
+    if( l_key > 256 ) l_key = 256 ;
+    if( l_value > 256 ) l_value = 256 ;
+
+    int l_age = 0 ;
+    if( age ) {
+	while( *age == ' ' ) age++ ;
+	l_age = strlen( CP age ) ;
+    }
+    if( l_age > 256 ) l_age = 256 ;
+
+    int iSpan = 0 ;
+
+    strcat( data_page, "<tr>" ) ;
+
+    if( l_name == 0 ) {
+	strcat( data_page, "<td colspan=4>" ) ;
+	strncat( data_page, CP key, l_key ) ;
+	iSpan = 1 ;
+    } else {
+	strcat( data_page, "<td align=\"left\">" ) ;
+	strncat( data_page, CP name, l_name ) ;
+
+	if( l_value == 0 ) {
+	    strcat( data_page, "<td colspan=2>" ) ;
+	    strncat( data_page, CP key, l_key ) ;
+	    iSpan = 2 ;
+	} else {
+	    strcat( data_page, "<td align=\"left\">" ) ;
+	    strncat( data_page, CP key, l_key ) ;
+	    strcat( data_page, "<td align=\"center\">" ) ;
+	    strncat( data_page, CP value, l_value ) ;
+	}
+
+	strcat( data_page, "<td align=\"right\">" ) ;
+
+	if( n_attempts ) strcat( data_page, "<font color=\"red\">" ) ;
+	else if( updated ) strcat( data_page, "<font color=\"green\">" ) ;
+
+	if( age )
+	    strncat( data_page, CP age, l_age ) ;
+
+	if( n_attempts || updated ) strcat( data_page, "</font>" ) ;
+    }
+    if( iSpan == 0 ) {
+	if( iWidth[0] < l_name )
+	    iWidth[0] = l_name ;
+	if( iWidth[2] < l_key )
+	    iWidth[1] = l_key ;
+	if( iWidth[2] < l_value )
+	    iWidth[2] = l_value ;
+	if( iWidth[3] < l_age )
+	    iWidth[3] = l_age ;
+    }
+
+    strcat( data_page, "</tr>\r\n" ) ;
+}
+
+void HTTPServer::Postamble( void )
+{
+    strcat( data_page, "</colgroup>\r\n" ) ;
+    strcat( data_page, "</table>\r\n" ) ;
+    strcat( data_page, "</body>\r\n" ) ;
+    strcat( data_page, "</html>\r\n" ) ;
+    l_page = strlen( data_page ) ;
+
+    strcpy( the_intro, "HTTP/1.1 200 OK\r\n" ) ;
+    sprintf( the_intro+strlen(the_intro), "Content-Length: %d\r\n", l_page ) ;
+    // Connection: close
+
+    strcat( the_intro, "Expires: -1\r\n" ) ;
+    strcat( the_intro, "Content-type: text/html\r\n" ) ;
+    strcat( the_intro, "\r\n" ) ;
+    l_intro = strlen( the_intro ) ;
+
+    time( created+eLog ) ;
+}
+
+void HTTPServer::ReceiveConnection( int w_i )
+{
+    int mode = GraspGet( w_i ) ;
+    if( mode < 0 ) {
+	ConnectionClose( w_i ) ;
+	return ;
+    }
+    // if( request[w_i] ) return ;
+    request[w_i] = mode ;
+    if( mode != req_last[w_i] )
+	time_last[w_i] = 0 ;
+}
+
+int HTTPServer::GraspGet ( int w_i )
+{
+    char buffer[1024] ;
+    int fdx = fds[w_i] ;
+
+    int nread = read( fdx, buffer, 1024 ) ;
+    if( nread <= 0 ) {
+	// These can be confusing!
+	// perror( "graspget" ) ;
+	return( -1 ) ;
+    }
+    buffer[nread] = '\0' ;
+    char *p = strpbrk( buffer, "\r\n" ) ;
+    if( p ) *p = '\0' ;
+
+    // fprintf( stderr, "%2d %s\r\n", fdx, buffer ) ;
+
+    if( strncasecmp( buffer, "get / ", 6 ) == 0 ) {
+	return( eMain ) ;
+    } else if( strncasecmp( buffer, "get /f", 6 ) == 0 ) {
+	return( eForm ) ;
+    } else if( strncasecmp( buffer, "get /d", 6 ) == 0 ) {
+	return( eLog ) ;
+    } else if( strncasecmp( buffer, "get /s", 6 ) == 0 ) {
+	return( eStatus ) ;
+    } else if( strncasecmp( buffer, "get /e", 6 ) == 0 ) {
+	return( eLong ) ;
+    } else if( strncasecmp( buffer, "get /q", 6 ) == 0 ) {
+	ExecuteCommand( UCP buffer ) ;
+	return( eQuery ) ;
+    }
+    return( 0 ) ;
+}
+
+void HTTPServer::ConnectionClose( int w_i )
+{
+    DODBG(11)(DBGDEV, "Closing %d\n", w_i ) ;
+    ConnectionOff( fds[w_i] ) ;
+    request[w_i] = 0 ; 
+    time_last[w_i] = 0 ;
+    req_last[w_i] = -1 ;
+    fds[w_i] = -1 ;
+}
+
+void HTTPServer::ExecuteCommand( u_char *buffer )
+{
+    u_char *p = UCP strchr( CP buffer, '=' ) ;
+    if( ! p ) {
+	DODBG(0)(DBGDEV, "Command rejected.\n" ) ; return ;
+    }
+
+    u_char *q = UCP strchr( CP ++p, ' ' ) ;
+    if( ! q ) {
+	DODBG(0)(DBGDEV, "Command rejected.\n" ) ; return ;
+    }
+    *q = '\0' ;
+
+    while( true ) {
+	char *plus = strchr( CP p, '+' ) ;
+	if( !plus ) break ;
+	*plus = ' ' ;
+    }
+
+    snprintf( CP buff_rx, RX_BUFFSZ, "@@%s", p ) ;
+    n_cmds++ ;
+
+    pthread_mutex_lock( &sequencer_mutex ) ;
+    SequencerCmd() ;
+    pthread_mutex_unlock( &sequencer_mutex ) ;
+
+    // We always ignore the results.
+}
+
+int HTTPServer::DeliverOne( int mode, int w_i )
+{
+    char temp[128] ;
+    int nwrite = 0 ;
+    int fdx = fds[w_i] ;
+
+    switch( mode ) {
+    case eMain:
+	snprintf( temp, 128, basic_intro, sizeof(main_page) ) ;
+	nwrite = write( fdx, temp, strlen(temp) ) ;
+	if( nwrite > 0 ) nwrite = write( fdx, main_page, sizeof(main_page) ) ;
+	break ;
+    case eForm:
+	snprintf( temp, 128, basic_intro, strlen(form_page) ) ;
+	nwrite = write( fdx, temp, strlen(temp) ) ;
+	if( nwrite > 0 ) nwrite = write( fdx, form_page, strlen(form_page));
+	break ;
+    case eLog:
+	nwrite = write( fdx, the_intro, strlen(the_intro) ) ;
+	if( nwrite > 0 ) nwrite = write( fdx, data_page, l_page ) ;
+	break ;
+    case eStatus:
+	nwrite = write( fdx, stat_intro, strlen(stat_intro) ) ;
+	if( nwrite > 0 ) nwrite = write( fdx, stat_page, l_status ) ;
+	break ;
+    case eLong:
+	snprintf( temp, 128, basic_intro, strlen(long_form) ) ;
+	nwrite = write( fdx, temp, strlen(temp) ) ;
+	if( nwrite > 0 ) nwrite = write( fdx, long_form, strlen(long_form));
+	break ;
+    case eQuery:
+	nwrite = write( fdx, h204_intro, sizeof(h204_intro) ) ;
+	break ;
+    }
+
+    /*
+    if( nwrite < 0 ) 
+	perror( "deliver" ) ;
+    */
+    return( nwrite < 0 ) ;
+}
+
+void HTTPServer::BuildStatus( int cols )
+{
+    strcpy( stat_page, "<html>\r\n" ) ;
+    strcat( stat_page, "<head>\r\n" ) ;
+    strcat( stat_page, "<META HTTP-EQUIV=\"REFRESH\" CONTENT=\"1\">\r\n" ) ;
+    strcat( stat_page, "</head>\r\n" ) ;
+    strcat( stat_page, "<body>\r\n" ) ;
+    strcat( stat_page, "<table rules=\"all\" border=\"1\" style=\"font-size: 8pt\" cellspacing=\"0\" cellpadding=\"1\" >\r\n" ) ;
+
+    for( int j = 0 ; j < nStatus ; j++ ) {
+	strcat( stat_page, "<tr>" ) ;
+
+	for( int k = 0 ; k < cols ; k++ ) {
+	    strcat( stat_page, "<td align=\"left\">" ) ;
+	    strcat( stat_page, gStatus[j][k] ) ;
+	}
+	strcat( stat_page, "</tr>\r\n" ) ;
+    }
+
+    strcat( stat_page, "</table>\r\n" ) ;
+    strcat( stat_page, "</body>\r\n" ) ;
+    strcat( stat_page, "</html>\r\n" ) ;
+    l_status = strlen( stat_page ) ;
+
+    strcpy( stat_intro, "HTTP/1.1 200 OK\r\n" ) ;
+    sprintf( stat_intro+strlen(stat_intro), 
+	"Content-Length: %d\r\n", l_status ) ;
+    // Connection: close
+
+    strcat( stat_intro, "Expires: -1\r\n" ) ;
+    strcat( stat_intro, "Content-type: text/html\r\n" ) ;
+    strcat( stat_intro, "\r\n" ) ;
+    l_status_intro = strlen( stat_intro ) ;
+    time( created+eStatus ) ;
+}
+
+void HTTPServer::MeetRequest( int w_i )
+{
+    int w_request = request[w_i] ;
+
+    if( created[w_request] > time_last[w_i] ) {
+	if( DeliverOne( w_request, w_i ) ) {
+	    ConnectionClose( w_i ) ;
+	} else {
+	    time( time_last+w_i ) ;
+	    req_last[w_i] = request[w_i] ;
+	    request[w_i] = 0 ;
+	}
+    }
+}
+void HTTPServer::PleaseReport( int wline, int scol )
+{
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "P %d", bind_port ) ;
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "Connections" ) ;
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "%d", nfds ) ;
+}   
+
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.13
+log
+@Working system. Backing up.
+@
+text
+@d29 1
+a29 1
+char basic_intro[] =
+d35 1
+a35 1
+char main_page[] = 
+d42 2
+a43 2
+"<FRAMESET ROWS=\"250,*\">\r\n"
+"<FRAME src=\"/form.html\">\r\n"
+d50 1
+a50 1
+char h204_intro[] =
+d58 1
+a58 1
+char form_page[] = 
+d101 5
+a105 1
+    for( int i = 0 ; i < MaxConn ; i++ ) fds[i] = -1 ;
+d108 1
+a108 1
+    for( int i = 0 ; i < 8 ; i++ ) created[i] = 0 ;
+a135 5
+void s_write( int fd, char *line )
+{
+    write( fd, line, strlen(line) ) ;
+}
+
+d184 1
+a184 1
+	for( i = 0 ; i < MaxConn ; i++ ) {
+d245 2
+d256 3
+d261 25
+a285 1
+    strcat( data_page, "<table rules=\"all\" border=\"1\" style=\"font-size: 8pt\" cellspacing=\"0\" cellpadding=\"1\" >\r\n" ) ;
+d288 1
+a288 2
+void HTTPServer::Body( u_char *name, u_char *key, u_char *value, u_char *age,
+    int n_attempts )
+d290 1
+d293 13
+a305 1
+    int l_name  = name ? strlen(CP name) : 0 ;
+d310 1
+a310 1
+	strncat( data_page, "<td colspan=4>", 14 ) ;
+d312 1
+d318 3
+a320 2
+	    strncat( data_page, "<td colspan=2>", 14 ) ;
+	    strcat( data_page, CP key ) ;
+d323 1
+a323 1
+	    strcat( data_page, CP key ) ;
+d325 1
+a325 1
+	    strcat( data_page, CP value ) ;
+d329 1
+d331 16
+a346 2
+	strcat( data_page, CP age ) ;
+	if( n_attempts ) strcat( data_page, "</font>" ) ;
+d354 1
+d450 2
+d453 2
+d507 1
+a507 1
+    strcat( stat_page, "<table rules=\"all\" border=\"1\" style=\"font-size: 9pt\" cellspacing=\"0\" cellpadding=\"1\" >\r\n" ) ;
+@
+
+
+1.12
+log
+@Trying a change to the query form.
+@
+text
+@d58 1
+a58 1
+char form_page_s[] = 
+d79 1
+d84 2
+a85 1
+char *form_page = form_page_l ;
+d95 2
+d105 5
+a109 3
+    time( created+1 ) ; // Opening page is always available.
+    time( created+2 ) ; // Form page is always available.
+    time( created+5 ) ; // Query page is always available.
+d250 1
+a250 1
+    created[3] = 0 ;
+d311 1
+a311 1
+    time( created+3 ) ;
+d345 1
+a345 1
+	return( 1 ) ;
+d347 1
+a347 1
+	return( 2 ) ;
+d349 1
+a349 1
+	return( 3 ) ;
+d351 3
+a353 1
+	return( 4 ) ;
+d356 1
+a356 1
+	return( 5 ) ;
+d403 1
+a403 1
+    case 1:
+d408 1
+a408 1
+    case 2:
+d413 1
+a413 1
+    case 3:
+d417 1
+a417 1
+    case 4:
+d421 6
+a426 1
+    case 5:
+d471 1
+a471 1
+    time( created+4 ) ;
+@
+
+
+1.11
+log
+@Upgrade to form submission.
+Could be a bad idea!
+@
+text
+@d42 1
+a42 1
+"<FRAMESET ROWS=\"200,*\">\r\n"
+d56 3
+a58 1
+char form_page[] = 
+d76 1
+a76 1
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"SEND\">\r\n"
+d83 2
+d385 1
+a385 1
+    // We ignore the results.
+d401 1
+a401 1
+	snprintf( temp, 128, basic_intro, sizeof(form_page) ) ;
+d403 1
+a403 1
+	if( nwrite > 0 ) nwrite = write( fdx, form_page, sizeof(form_page) ) ;
+@
+
+
+1.10
+log
+@Working version.
+@
+text
+@d42 1
+a42 1
+"<FRAMESET ROWS=\"60,*\">\r\n"
+d66 8
+d75 1
+a75 1
+"<INPUT TYPE=\"TEXT\" NAME=\"INPUT\" VALUE=\"\">\r\n"
+d247 1
+a247 1
+    strcat( data_page, "<table rules=\"all\" border=\"1\" style=\"font-size: 9pt\" cellspacing=\"0\" cellpadding=\"1\" >\r\n" ) ;
+@
+
+
+1.9
+log
+@Minor change to http size.
+@
+text
+@d242 2
+a243 1
+void HTTPServer::Body( u_char *name, u_char *key, u_char *value, u_char *age )
+d269 1
+d271 1
+a278 3
+    static int once = true ;
+    if( once ) write( 2, "\007", 1 ) ; once = false ;
+
+@
+
+
+1.8
+log
+@Working Version. SRS630 included.
+@
+text
+@d40 1
+a40 1
+"<FRAMESET COLS=\"40%,*\">\r\n"
+d66 1
+a66 1
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"SET\">\r\n"
+@
+
+
+1.7
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d465 1
+a465 1
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "P#%d", bind_port ) ;
+@
+
+
+1.6
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d93 1
+a93 1
+    DOLOG(11)(LOGDEV, "Leaving http server constructor.\n" ) ;
+d98 1
+a98 1
+    DOLOG(11)(LOGDEV, "http server destructor.\n" ) ;
+d111 1
+a111 1
+    DOLOG(11)( LOGDEV, "Closing http connection.\n" ) ;
+d123 1
+a123 1
+	    DOLOG(0)( LOGDEV, "http server could not operate.\n" ) ;
+d129 1
+a129 1
+	    DOLOG(0)( LOGDEV, "Error in http server listen.\n" ) ;
+d132 1
+a132 1
+	DOLOG(11)( LOGDEV, "Listen succeeded for %s.\n", name ) ;
+d179 1
+a179 1
+                DOLOG(0)( LOGDEV, "Fatal error in Loop/select. Sorry!\n" ) ;
+d193 1
+a193 1
+	    DOLOG(11)(LOGDEV, "Accepted connection.\n" ) ;
+d203 1
+a203 1
+    int status = fcntl( fd, F_SETFL, &file_status ) ;
+d206 1
+a206 1
+    DOLOG(11)(LOGDEV, "Adding HTTP connection fd=%d.\n", fd ) ;
+d217 1
+a217 1
+    DOLOG(11)(LOGDEV, "%d connections.\n", nfds ) ;
+d343 1
+a343 1
+    DOLOG(11)(LOGDEV, "Closing %d\n", w_i ) ;
+d355 1
+a355 1
+	DOLOG(0)(LOGDEV, "Command rejected.\n" ) ; return ;
+d360 1
+a360 1
+	DOLOG(0)(LOGDEV, "Command rejected.\n" ) ; return ;
+d373 1
+a380 1
+    // fprintf( stderr, "DO: %d %d\n", fdx, mode ) ;
+@
+
+
+1.5
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d83 1
+a83 1
+    uc_bind_port = html_port ;
+d122 4
+a125 1
+	CreateAndBind() ;
+@
+
+
+1.4
+log
+@Working. Correct for crlf.
+@
+text
+@d93 1
+a93 1
+    DOLOG(9)(LOGDEV, "Leaving http server constructor.\n" ) ;
+d98 1
+a98 1
+    DOLOG(9)(LOGDEV, "http server destructor.\n" ) ;
+d111 1
+a111 1
+    DOLOG(4)( LOGDEV, "Closing http connection.\n" ) ;
+d126 1
+a126 1
+	    DOLOG(4)( LOGDEV, "Error in http server listen.\n" ) ;
+d129 1
+a129 1
+	DOLOG(2)( LOGDEV, "Listen succeeded for %s.\n", name ) ;
+d190 1
+a190 1
+	    fprintf( stderr, "Accepted connection.\n" ) ;
+d203 1
+a203 1
+    fprintf( stderr, "Adding %d.\n", fd ) ;
+d214 1
+a214 1
+    fprintf( stderr, "%d connections.\n", nfds ) ;
+d313 2
+a314 1
+	perror( "graspget" ) ;
+d340 1
+a340 1
+    fprintf( stderr, "Closing %d\n", w_i ) ;
+d352 1
+a352 1
+	fprintf( stderr, "Command rejected.\n" ) ; return ;
+d357 1
+a357 1
+	fprintf( stderr, "Command rejected.\n" ) ; return ;
+a367 1
+    fprintf( stderr, "rx: %s\n", buff_rx ) ;
+d410 1
+a410 1
+void HTTPServer::BuildStatus( void )
+d422 1
+a422 1
+	for( int k = 0 ; k < MAXITEM ; k++ ) {
+@
+
+
+1.3
+log
+@Working for CRISM config.
+@
+text
+@d462 1
+a462 1
+    snprintf( gStatus[wline][scol++], MAXDEVSTR, "Port=%d", bind_port ) ;
+@
+
+
+1.2
+log
+@Working.
+@
+text
+@d40 1
+a40 1
+"<FRAMESET COLS=\"30%,*\">\r\n"
+d236 1
+a236 1
+    strcat( data_page, "<table rules=\"all\" border=\"1\" style=\"font-size: 10pt\">\r\n" ) ;
+d241 2
+a242 3
+    int l_key = strlen( CP key ) ;
+    int l_value = strlen( CP value ) ;
+    // int l_age = strlen( CP age ) ;
+d246 5
+a250 1
+    if( l_value ) {
+d253 11
+a263 4
+	strcat( data_page, "<td align=\"left\">" ) ;
+	strcat( data_page, CP key ) ;
+	strcat( data_page, "<td align=\"center\">" ) ;
+	strcat( data_page, CP value ) ;
+a265 3
+    } else {
+	strncat( data_page, "<td colspan=4>", 14 ) ;
+	strncat( data_page, CP key, l_key ) ;
+d267 1
+d320 1
+a320 1
+    fprintf( stderr, "%2d %s\r\n", fdx, buffer ) ;
+d377 1
+a377 1
+    fprintf( stderr, "DO: %d %d\n", fdx, mode ) ;
+d417 1
+a417 1
+    strcat( stat_page, "<table rules=\"all\" border=\"1\" style=\"font-size: 10pt\">\r\n" ) ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d19 1
+a19 1
+static char the_page[65536] ;
+d24 1
+a24 1
+static char the_status[65536] ;
+d26 1
+a26 1
+static char the_status_intro[1024] ;
+d29 1
+a29 1
+char *basic_intro =
+d35 1
+a35 1
+char base_page[] = 
+d40 5
+a44 5
+"<FRAMESET COLS=\"*,*\">\r\n"
+"<FRAME src=\"/main.html\">\r\n"
+"<FRAMESET ROWS=\"75,*\">\r\n"
+"<FRAME src=\"/frame.html\">\r\n"
+"<FRAME src=\"/what.html\">\r\n"
+d50 7
+a56 1
+char frame_page[] = 
+d65 1
+a65 1
+"<FORM ACTION=\"/set.html\" METHOD=\"GET\">\r\n"
+d76 1
+a76 1
+    snprintf( temp, 64, basic_intro, sizeof(base_page) ) ;
+d78 1
+a78 1
+    write( fd, base_page, sizeof(base_page) ) ;
+d88 5
+d96 11
+d131 57
+a187 2
+	while( true ) {
+	    fprintf( stderr, "Accepting connections\n" ) ;
+d189 13
+a201 1
+	    fprintf( stderr, "Accepted connection\n" ) ;
+d203 19
+a221 19
+	    int file_status ;
+	    file_status = fcntl( fd, F_GETFL ) ;
+	    file_status |= O_NONBLOCK ;
+	    int status = fcntl( fd, F_SETFL, &file_status ) ;
+	    if( status ) perror( "socket setfl" ) ;
+
+	    for( int i = 0 ; i < MaxConn ; i++ ) {
+		if( fds[i] >= 0 ) continue ;
+		fds[i] = fd ; fd = -1 ;
+		break ;
+	    }
+	    nfds = 0 ;
+	    for( int i = 0 ; i < MaxConn ; i++ ) {
+		if( fds[i] >= 0 ) nfds++ ;
+	    }
+	    if( fd ) ConnectionOff( fd ) ;
+	    fprintf( stderr, "%d connections.\n", nfds ) ;
+	}
+	Unbind() ;
+d229 1
+d231 6
+a236 6
+    strcpy( the_page, "<html>\r\n" ) ;
+    strcat( the_page, "<head>\r\n" ) ;
+    strcat( the_page, "<META HTTP-EQUIV=\"REFRESH\" CONTENT=\"1\">\r\n" ) ;
+    strcat( the_page, "</head>\r\n" ) ;
+    strcat( the_page, "<body>\r\n" ) ;
+    strcat( the_page, "<table rules=\"all\" border=\"1\" style=\"font-size: 10pt\">\r\n" ) ;
+d246 1
+a246 1
+    strcat( the_page, "<tr>" ) ;
+d248 8
+a255 8
+	strcat( the_page, "<td align=\"left\">" ) ;
+	strncat( the_page, CP name, l_name ) ;
+	strcat( the_page, "<td align=\"left\">" ) ;
+	strcat( the_page, CP key ) ;
+	strcat( the_page, "<td align=\"center\">" ) ;
+	strcat( the_page, CP value ) ;
+	strcat( the_page, "<td align=\"right\">" ) ;
+	strcat( the_page, CP age ) ;
+d257 2
+a258 2
+	strncat( the_page, "<td colspan=4>", 14 ) ;
+	strncat( the_page, CP key, l_key ) ;
+d260 1
+a260 1
+    strcat( the_page, "</tr>\r\n" ) ;
+d268 4
+a271 4
+    strcat( the_page, "</table>\r\n" ) ;
+    strcat( the_page, "</body>\r\n" ) ;
+    strcat( the_page, "</html>\r\n" ) ;
+    l_page = strlen( the_page ) ;
+d282 14
+a295 1
+    DeliverAll() ;
+d298 1
+a298 1
+int HTTPServer::GraspGet ( int fd )
+d301 6
+a306 4
+    int nread = read( fd, buffer, 1024 ) ;
+    if( nread < 0 ) {
+	// perror( "graspget" ) ;
+	return( 0 ) ;
+d311 2
+a312 1
+    write( 2, buffer, strlen(buffer) ) ; write( 2, "\r\n", 2 ) ;
+d318 1
+a318 1
+    } else if( strncasecmp( buffer, "get /m", 6 ) == 0 ) {
+d320 1
+a320 1
+    } else if( strncasecmp( buffer, "get /w", 6 ) == 0 ) {
+d322 3
+a324 3
+    } else if( strncasecmp( buffer, "get /s", 6 ) == 0 ) {
+	RequestUpdate( UCP buffer ) ;
+	return( 0 ) ;
+d329 1
+a329 1
+void HTTPServer::DeliverAll ( void )
+d331 6
+a336 12
+    int nfds = 0, mfds = 0 ;
+    for( int i = 0 ; i < MaxConn ; i++ ) {
+	if( fds[i] < 0 ) continue ;
+	nfds++ ;
+	int mode = GraspGet( fds[i] ) ;
+	if( DeliverOne( mode, fds[i] ) ) {
+	    ConnectionOff( fds[i] ) ;
+	    fds[i] = -1 ;
+	    mfds++ ;
+	}
+    }
+    if( mfds ) fprintf( stderr, "%d connections now in place.\n", nfds-mfds ) ;
+d339 1
+a339 1
+void HTTPServer::RequestUpdate( u_char *buffer )
+d360 1
+d364 1
+a364 1
+int HTTPServer::DeliverOne ( int mode, int fd )
+d368 2
+d373 3
+a375 3
+	snprintf( temp, 128, basic_intro, sizeof(base_page) ) ;
+	nwrite = write( fd, temp, strlen(temp) ) ;
+	if( nwrite > 0 ) nwrite = write( fd, base_page, sizeof(base_page) ) ;
+d378 3
+a380 3
+	snprintf( temp, 128, basic_intro, sizeof(frame_page) ) ;
+	nwrite = write( fd, temp, strlen(temp) ) ;
+	if( nwrite > 0 ) nwrite = write( fd, frame_page, sizeof(frame_page) ) ;
+d383 2
+a384 2
+	nwrite = write( fd, the_intro, strlen(the_intro) ) ;
+	if( nwrite > 0 ) nwrite = write( fd, the_page, l_page ) ;
+d387 5
+a391 2
+	nwrite = write( fd, the_status_intro, strlen(the_status_intro) ) ;
+	if( nwrite > 0 ) nwrite = write( fd, the_status, l_status ) ;
+d395 4
+a398 1
+    if( nwrite < 0 ) perror( "deliver" ) ;
+d404 6
+a409 6
+    strcpy( the_status, "<html>\r\n" ) ;
+    strcat( the_status, "<head>\r\n" ) ;
+    strcat( the_status, "<META HTTP-EQUIV=\"REFRESH\" CONTENT=\"5\">\r\n" ) ;
+    strcat( the_status, "</head>\r\n" ) ;
+    strcat( the_status, "<body>\r\n" ) ;
+    strcat( the_status, "<table rules=\"all\" border=\"1\" style=\"font-size: 10pt\">\r\n" ) ;
+d412 1
+a412 1
+	strcat( the_status, "<tr>" ) ;
+d415 2
+a416 2
+	    strcat( the_status, "<td align=\"left\">" ) ;
+	    strcat( the_status, gStatus[j][k] ) ;
+d418 1
+a418 1
+	strcat( the_status, "</tr>\r\n" ) ;
+d421 4
+a424 4
+    strcat( the_status, "</table>\r\n" ) ;
+    strcat( the_status, "</body>\r\n" ) ;
+    strcat( the_status, "</html>\r\n" ) ;
+    l_status = strlen( the_status ) ;
+d426 2
+a427 2
+    strcpy( the_status_intro, "HTTP/1.1 200 OK\r\n" ) ;
+    sprintf( the_status_intro+strlen(the_status_intro), 
+d431 20
+a450 4
+    strcat( the_status_intro, "Expires: -1\r\n" ) ;
+    strcat( the_status_intro, "Content-type: text/html\r\n" ) ;
+    strcat( the_status_intro, "\r\n" ) ;
+    l_status_intro = strlen( the_status_intro ) ;
+d452 7
+@

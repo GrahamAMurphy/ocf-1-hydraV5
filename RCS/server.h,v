@@ -1,0 +1,193 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.6;
+
+1.6
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.09.16.15.44;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.04.23.56.41;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.13.01.45;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Defines Server class.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __Server_h__
+#define __Server_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+#include <pthread.h>
+
+#include "support.h"
+#include "stream.h"
+
+class Server : public Stream {
+protected:
+    u_char *uc_bind_port ;
+    bool port_set ;
+    int bind_port ;
+    int bind_protocol ;
+    int bind_fail_exit ;
+    int socket_type ;
+    int fdnet ;
+    int from_port ;
+    u_char from_ip[16] ;
+    volatile int n_cmds ;
+    volatile int server_state ;
+    struct sockaddr_in sin ;
+    pthread_mutex_t sequencer_mutex ;
+    virtual int Parse( u_char*, u_char* ) ;
+    void RunThread( void ) ;
+    virtual void ServerActive( void ) ;
+    int CreateAndBind( void ) ;
+    void Unbind( void ) ;
+    void AcceptConnection( void ) ;
+    void Disconnect( void ) ;
+    int SequencerCmd( void ) ;
+
+public:
+    Server( void ) ;
+    virtual void StartOps( void ) ;
+    virtual void PleaseReport( int, int ) ;
+} ;
+
+#endif // __Server_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.6
+log
+@Working Version. SRS630 included.
+@
+text
+@d27 1
+@
+
+
+1.5
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d27 1
+a27 1
+    int Parse( u_char*, u_char* ) ;
+d33 1
+a37 1
+    virtual int SetOptions( u_char* ) ;
+@
+
+
+1.4
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@d29 1
+a29 1
+    void ServerActive( void ) ;
+@
+
+
+1.3
+log
+@Working.
+@
+text
+@d19 1
+d30 1
+a30 1
+    void CreateAndBind( void ) ;
+@
+
+
+1.2
+log
+@Working. Supports SR630.
+@
+text
+@d11 1
+d14 1
+d22 3
+d37 2
+a38 1
+    void StartOps( void ) ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a9 6
+#ifdef FILE_H_HAVE
+#undef FILE_H_HAVE
+#endif
+#define FILE_H_HAVE (5)
+#include "extern.h"
+
+d27 1
+a27 1
+    void SequencerCmdParse( void ) ;
+d30 2
+a31 1
+    Server( u_char* ) ;
+@

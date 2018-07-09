@@ -1,0 +1,74 @@
+# Name       Type         Setup Information
+#
+Epoch	1291992075.0 # Unix time offset for 2010 December.
+
+<Sequencer>    			network-server
+options	<Sequencer>    		<port=5000> 
+
+<Monochromator>	network-client-monochromator
+options	<Monochromator>	<target=TestHost0,port=10102>
+alias	<Monochromator>	<Mono>
+
+<VNIR NB FW>	network-client-filterwheel
+options	<VNIR NB FW>	<target=TestHost0,port=10104>
+alias	<VNIR NB FW>	<vnir_nb_filter>
+
+<UV ND FW>	network-client-filterwheel
+options	<UV ND FW>	<target=TestHost0,port=10105>
+options	<UV ND FW>	<cycle=10.0>
+alias	<UV ND FW>	<uv_nd_filter>
+
+<IR NB FW>	network-client-filterwheel
+options	<IR NB FW>	<target=TestHost0,port=10103>
+alias	<IR NB FW>	<ir_nb_filter>
+
+<SR 630>	network-client-sr630
+options	<SR 630>	<target=TestHost0,port=10004>
+options <SR 630>        <names=sr630_tcnames.txt>
+
+<Newport MM 4005>	network-client-mm4005
+options	<Newport MM 4005>	<target=TestHost0,port=10002>
+options <Newport MM 4005>       <axis1=Yaw,axis2=Pitch,axis3=Translation>
+options	<Newport MM 4005>	<cycle=5.0>
+alias	<Newport MM 4005>	<MS>
+alias	<Newport MM 4005>	<MotionStage>
+alias	<Newport MM 4005>	<Newport>
+
+<Integrating Sphere>	network-client-labsphere
+options	<Integrating Sphere>	<target=TestHost0,port=10005>
+alias	<Integrating Sphere>	<Sphere>
+
+<Unidex 511>     network-client-unidex511
+options <Unidex 511>     <target=TestHost0,port=10001>
+options <Unidex 511>       <axis1=X,axis2=Y>
+alias   <Unidex 511>     <beamscanner>
+alias   <Unidex 511>     <Unidex>
+
+<PRM100>     network-client-prm100
+options <PRM100>     <target=TestHost0,port=10101>
+
+<PM2813>     network-client-PM2813
+options <PM2813>     <target=TestHost0,port=10006>
+alias <PM2813>     <Power Supply>
+
+<UDT S370>     network-client-UDTS370
+options <UDT S370>     <target=TestHost0,port=10007>
+
+<UDT S470>     network-client-UDTS470
+options <UDT S470>     <target=TestHost0,port=10008>
+
+options	<Sequencer>    		<enable>
+options	<Monochromator>		<disable>
+options	<VNIR NB FW>		<disable>
+options	<UV ND FW>		<disable>
+options	<IR NB FW>		<disable>
+options	<SR 630>		<disable>
+options	<Newport MM 4005>	<disable>
+options	<Integrating Sphere>	<disable>
+options <Unidex 511>    	<disable>
+options <PRM100>    		<enable>
+options <PM2813>    		<disable>
+options <UDT S370>           	<disable>
+options <UDT S470>           	<disable>
+
+exit

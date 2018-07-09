@@ -1,0 +1,306 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.10.1597
+	murphy:5.1.8.1547
+	murphy:5.1.9.1595; strict;
+comment	@# @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1
+	5.1.9.1593
+	5.1.10.1597;
+next	1.2;
+
+1.2
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.04.23.57.15;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	5.1.8.1547;
+
+5.1.8.1547
+date	2014.11.11.12.19.06;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.9.1593
+date	2015.01.07.19.14.24;	author murphy;	state Exp;
+branches;
+next	5.1.9.1595;
+
+5.1.9.1595
+date	2015.07.28.16.02.07;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.10.1597
+date	2015.07.28.16.07.19;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working. Supports SR630.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@VERSION_0 = 5
+VERSION_1 = 1
+VERSION_2 = 8
+BRANCH = $(VERSION_0).$(VERSION_1)
+VERSION = $(BRANCH).$(VERSION_2)
+
+LANG=
+
+SRC = main.cc queue.cc support.cc \
+    logging.cc periodic.cc httpserver.cc xmlserver.cc \
+    stream.cc keyboard.cc server.cc client.cc \
+    filterwheel.cc \
+    tempmon.cc \
+    monochromator.cc \
+    sr630.cc \
+    mm4005.cc \
+    klingermc4.cc \
+    unidex11.cc \
+    unidex511.cc \
+    ke617.cc \
+    ke6514.cc \
+    pm2813.cc \
+    prm100.cc \
+    labsphere.cc \
+    udts370.cc \
+    udts470.cc \
+    thermalserver.cc \
+    newportTH.cc
+
+OBJECTS = main.o queue.o support.o \
+    logging.o periodic.o httpserver.o xmlserver.o \
+    stream.o keyboard.o server.o client.o \
+    filterwheel.o \
+    tempmon.o \
+    monochromator.o \
+    sr630.o \
+    mm4005.o \
+    klingermc4.o \
+    unidex11.o \
+    unidex511.o \
+    ke617.o \
+    ke6514.o \
+    pm2813.o \
+    prm100.o \
+    labsphere.o \
+    udts370.o \
+    udts470.o \
+    thermalserver.o \
+    newportTH.o
+
+LIBS = -lpthread
+
+CPPFLAGS = -Wall -O3 -Wunused -g # -fno-default-inline
+LDFLAGS = -g
+RCS = *.cc *.h Makefile .build
+
+# for print outs of all instruments.
+INSTS = client.cc filterwheel.cc monochromator.cc tempmon.cc sr630.cc \
+    mm4005.cc klingermc4.cc unidex11.cc unidex511.cc ke617.cc ke6514.cc \
+    labsphere.cc prm100.cc pm2813.cc udts370.cc udts470.cc newportTH.cc
+
+all:	checkin .depends hydra
+
+.depends:	$(SRC)
+	@@ echo "Creating .depends file."
+	@@ for cc in $(SRC) ; do gcc -MM -MF $$cc.d $$cc ; done
+	@@ cat *.d > .depends
+	@@ /bin/rm -f *.d
+
+-include .depends
+
+checkin:
+	@@- touch .cksum
+	@@- cat *.cc *.h Makefile | cksum > .cksum_0
+	@@- if ( ! cmp -s .cksum .cksum_0 ) ; then \
+	    date +%F\ %X\ `hostname` > .stamp ; \
+	    cat .stamp >> .build ; \
+	    export BUILD=`cat .build | wc -l ` ; \
+	    cat .build | wc -l > build.h ; \
+	    cat *.cc *.h Makefile | cksum > .cksum ; \
+	    ci -q -l$(VERSION).$${BUILD} -m${VERSION}.$${BUILD} -t.stamp $(RCS) ; \
+	    echo -n "New " ; \
+	fi
+	@@- /bin/rm -f .cksum_0
+	@@- echo -n "Build #" ; cat build.h ;
+	@@- touch version.cc
+
+hydra:	$(OBJECTS) build.h
+	g++ -O3 -c version.cc -DVERSION=\"$(VERSION)\"
+	g++ -o hydra $(LDFLAGS) $(OBJECTS) version.o $(LIBS)
+
+clean:
+	/bin/rm -f *.o core core.* hydra .depends
+
+veryclean:
+	/bin/rm -f *.o core core.* hydra .depends DEBUG/* Logs/*
+	/bin/rm -rf State/*
+
+archive:
+	tar -czf ../hydra_$(VERSION).tgz .
+
+rcs: # Do this when adding a new file.
+	-ci -f -l$(BRANCH) -m${BRANCH} -t.stamp $(RCS) ;
+	-ci -f -l$(VERSION).1 -m${VERSION}.1 -t.stamp $(RCS)
+@
+
+
+5.1.10.1597
+log
+@5.1.10.1597
+@
+text
+@d3 1
+a3 1
+VERSION_2 = 10
+a27 2
+    sbi4000.cc \
+    newmark.cc \
+a48 2
+    sbi4000.o \
+    newmark.o \
+d56 5
+@
+
+
+5.1.9.1593
+log
+@5.1.9.1593
+@
+text
+@d3 1
+a3 1
+VERSION_2 = 9
+a27 1
+    sbi4000.cc \
+a48 1
+    sbi4000.o \
+d56 5
+@
+
+
+5.1.9.1595
+log
+@5.1.9.1595
+@
+text
+@a28 1
+    newmark.cc \
+a50 1
+    newmark.o \
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+5.1.8.1547
+log
+@5.1.8.1547
+@
+text
+@a27 1
+    sbi4000.cc \
+a48 1
+    sbi4000.o \
+d56 5
+@
+
+
+1.2
+log
+@Working for CRISM config.
+@
+text
+@d1 49
+a49 7
+SRC = main.cc stream.cc queue.cc keyboard.cc server.cc client.cc support.cc \
+    logging.cc periodic.cc tempmon.cc monochromator.cc filterwheel.cc sr630.cc \
+    newport.cc electrometer.cc labsphere.cc httpserver.cc 
+
+OBJECTS = main.o stream.o queue.o keyboard.o server.o client.o support.o \
+    logging.o periodic.o tempmon.o monochromator.o filterwheel.o sr630.o \
+    newport.o electrometer.o labsphere.o httpserver.o
+d53 16
+a68 3
+INCLUDES = global.h stream.h main.h queue.h keyboard.h server.h client.h \
+    support.h logging.h periodic.h tempmon.h monochromator.h filterwheel.h \
+    sr630.h newport.h electrometer.h labsphere.h httpserver.h
+d70 1
+a70 2
+CPPFLAGS = -O3 -Wunused -g # -fno-default-inline
+LDFLAGS = 
+d72 19
+d92 2
+a93 6
+all:	interface
+
+include depends
+
+interface:	$(OBJECTS)
+		g++ -o interface $(LDFLAGS) $(OBJECTS) $(LIBS)
+d95 10
+a104 9
+# $(OBJECTS):	$(INCLUDES)
+
+depends:	$(SRC)
+	@@for cc in $(SRC) ; do gcc -MM -MF $$cc.d $$cc ; done
+	@@ cat *.d > depends
+	@@ /bin/rm -f *.d
+
+clean:
+	/bin/rm -f *.o core core.* interface
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 4
+d6 3
+a8 1
+    logging.o periodic.o tempmon.o monochromator.o filterwheel.o sr630.o
+d10 1
+d13 1
+a13 1
+    sr630.h
+d15 1
+a15 1
+CPPFLAGS = -O2 -Wunused -g -funsigned-char # -fno-default-inline
+d18 1
+d21 2
+d26 6
+a31 1
+$(OBJECTS):	$(INCLUDES)
+@

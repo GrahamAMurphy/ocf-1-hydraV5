@@ -1,0 +1,267 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@ * @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.9;
+
+1.9
+date	2004.09.10.11.43.48;	author murphy;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.06.20.16.26.39;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.15.12.49.10;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.10.15.36.12;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.09.16.15.44;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.04.23.56.41;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.13.01.45;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Defines Client class.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#ifndef __Client_h__
+#define __Client_h__
+
+#pragma interface
+
+#include <sys/types.h>
+#include <termio.h>
+#include <pthread.h>
+
+#include "support.h"
+
+class Client : public Stream {
+    u_char *uc_target ;
+    u_char *uc_target_port ;
+    u_char *uc_ip ;
+    bool ip_set, port_set ;
+    int target_port, target_protocol ;
+    int socket_type ;
+    int from_port ;
+    struct sockaddr_in sin ;
+    void RunThread( void ) ;
+    int SetupDetails(void) ;
+    int InitiateTransaction( void ) ;
+    int ConnectionStarted( void ) ;
+    void ConnectionEnded( void ) ;
+
+protected:
+    int retry_time ;
+    int connection_good ;
+    volatile int disconnects ;
+    volatile int retry_ticker ;
+    volatile int retry_count ;
+    sCmd client_cmd ;
+    volatile int client_state ;
+    volatile int cmd_time ;
+    volatile bool new_timing ;
+    void DisplayConnection(void) ;
+    virtual int HandleRequest( void ) ;
+    virtual int DeviceOpen( void ) ;
+    virtual void DeviceClose( void ) ;
+    virtual void StartPeriodicTasks( void ) ;
+    virtual void StopPeriodicTasks( void ) ;
+    virtual int Parse( u_char*, u_char* ) ;
+    void AddStatus( int index, u_char* key, u_char* value ) ;
+    int NoStatus( int index ) ;
+
+public:
+    Client( void ) ;
+    virtual void StartOps( void ) ;
+    virtual void PleaseReport( int, int ) ;
+    virtual int ListOptions( int, u_char *, int ) ;
+    void ResetRetry( void ) ;
+    int reconnect ;
+} ;
+
+#endif // __Client_h__
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.9
+log
+@Working system. Backing up.
+@
+text
+@d51 2
+@
+
+
+1.8
+log
+@Working Version. SRS630 included.
+@
+text
+@d29 1
+a29 1
+    int connection_good, reconnect ;
+d31 2
+d45 1
+d51 1
+@
+
+
+1.7
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@a20 1
+    int Parse( u_char*, u_char* ) ;
+d41 1
+a45 1
+    virtual int SetOptions( u_char* ) ;
+@
+
+
+1.6
+log
+@Working, but revising LOG notation, changing to DBG.
+@
+text
+@a19 1
+    int retry_time ;
+d29 1
+d31 1
+@
+
+
+1.5
+log
+@Working version. About to add setup and init via network.
+@
+text
+@d25 4
+d30 2
+a31 1
+    int connection_good ;
+a32 1
+    volatile int n_cmds ;
+d34 1
+a34 1
+    volatile int errors ;
+a35 1
+    virtual int ConnectionStarted( void ) ;
+d37 4
+a40 1
+    virtual void ConnectionEnded( void ) ;
+d42 1
+@
+
+
+1.4
+log
+@Working for CRISM config.
+@
+text
+@d30 1
+@
+
+
+1.3
+log
+@Working.
+@
+text
+@d29 1
+@
+
+
+1.2
+log
+@Working. Supports SR630.
+@
+text
+@d27 2
+a28 1
+    int mStatus ;
+d38 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a9 6
+#ifdef FILE_H_HAVE
+#undef FILE_H_HAVE
+#endif
+#define FILE_H_HAVE (5)
+#include "extern.h"
+
+d15 1
+d19 2
+a21 1
+    int from_port ;
+d24 9
+a32 1
+    void HandleRequest( void ) ;
+d34 3
+a36 2
+    Client( u_char* ) ;
+    void StartOps( void ) ;
+@

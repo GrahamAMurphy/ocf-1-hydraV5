@@ -1,0 +1,66 @@
+# Name       Type         Setup Information
+#
+Epoch	946684800.0 # Unix time offset for Lorri MET Epoch 2000+001.0 UT
+
+<Sequencer>    			network-server
+options	<Sequencer>    		<port=5000> 
+alias	<Sequencer>    		<Sequencer>
+
+<Monochromator>	network-client-monochromator
+options	<Monochromator>	<target=TestHost0,port=10103>
+alias	<Monochromator>	<Monochromator>
+alias	<Monochromator>	<Mono>
+
+<VNIR NB FW>	network-client-filterwheel
+options	<VNIR NB FW>	<target=TestHost0,port=10104>
+alias	<VNIR NB FW>	<vnir_nb_filter>
+alias	<VNIR NB FW>	<fw12>
+
+<UV ND FW>	network-client-filterwheel
+options	<UV ND FW>	<target=TestHost0,port=10105>
+options	<UV ND FW>	<cycle=10.0>
+alias	<UV ND FW>	<uv_nd_filter>
+alias	<UV ND FW>	<fw13>
+
+<IR NB FW>	network-client-filterwheel
+options	<IR NB FW>	<target=TestHost0,port=10110>
+alias	<IR NB FW>	<ir_nb_filter>
+alias	<IR NB FW>	<fw14>
+
+<SR 630>	network-client-sr630
+options	<SR 630>	<target=TestHost0,port=10106>
+options <SR 630>        <names=sr630_tcnames.txt>
+alias	<SR 630>	<SR630>
+
+<Newport MM 4005>	network-client-mm4005
+options	<Newport MM 4005>	<target=TestHost0,port=10107>
+options	<Newport MM 4005>	<cycle=5.0>
+alias	<Newport MM 4005>	<MS>
+alias	<Newport MM 4005>	<MotionStage>
+alias	<Newport MM 4005>	<Newport>
+
+<Integrating Sphere>	network-client-labsphere
+options	<Integrating Sphere>	<target=TestHost0,port=10108>
+alias	<Integrating Sphere>	<Sphere>
+
+<Unidex 511>     network-client-unidex511
+options <Unidex 511>     <target=TestHost0,port=10111>
+alias   <Unidex 511>     <Unidex>
+alias   <Unidex 511>     <u>
+
+<PRM100>     network-client-prm100
+options <PRM100>     <target=TestHost0,port=10112>
+alias <PRM100>     <PRM100>
+
+options	<Sequencer>    		<enable>
+options	<Monochromator>		<enable>
+options	<VNIR NB FW>		<disable>
+options	<UV ND FW>		<disable>
+options	<IR NB FW>		<disable>
+options	<SR 630>		<disable>
+options	<Newport MM 4005>	<disable>
+options	<Integrating Sphere>	<disable>
+options <Unidex 511>    	<enable>
+options <PRM100>    		<enable>
+
+exit

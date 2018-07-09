@@ -1,0 +1,187 @@
+head	1.2;
+access;
+symbols;
+locks
+	murphy:1.2; strict;
+comment	@# @;
+
+
+1.2
+date	2004.06.10.15.37.09;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.04.23.57.04;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working. Supports SR630.
+@
+
+
+1.2
+log
+@Working for CRISM config.
+@
+text
+@# Name       Type         Setup Information
+#
+<Sequencer I/F>    	network-server
+options	<Sequencer I/F>    	<port=5000> 
+alias	<Sequencer I/F>    	<Sequencer>
+
+<Monochromator>	network-client-monochromator
+options	<Monochromator>	<target=TestHost0,port=10103>
+options	<Monochromator>	<retry=10>
+options	<Monochromator>	<timeout/write=1>
+options	<Monochromator>	<timeout/read=5.0>
+alias	<Monochromator>	<Monochromator>
+alias	<Monochromator>	<Mono>
+
+<Temperature Mon>	network-client-tempmon
+options	<Temperature Mon>	<target=TestHost0,port=10200>
+options	<Temperature Mon>	<retry=10>
+options	<Temperature Mon>	<timeout/write=0.2>
+options	<Temperature Mon>	<timeout/read=0.5>
+alias	<Temperature Mon>	<TempMon>
+
+<Filter Wheel 12>	network-client-filterwheel
+options	<Filter Wheel 12>	<target=TestHost0,port=10104>
+options	<Filter Wheel 12>	<retry=10>
+options	<Filter Wheel 12>	<timeout/write=1>
+options	<Filter Wheel 12>	<timeout/read=5.0>
+alias	<Filter Wheel 12>	<fw-12>
+alias	<Filter Wheel 12>	<fw1>
+
+<Filter Wheel 13>	network-client-filterwheel
+options	<Filter Wheel 13>	<target=TestHost0,port=10105>
+options	<Filter Wheel 13>	<retry=10>
+options	<Filter Wheel 13>	<timeout/write=1>
+options	<Filter Wheel 13>	<timeout/read=5.0>
+alias	<Filter Wheel 13>	<fw-13>
+alias	<Filter Wheel 13>	<fw2>
+
+<SR 630>	network-client-sr630
+options	<SR 630>	<target=TestHost0,port=10106>
+options	<SR 630>	<retry=10>
+options	<SR 630>	<timeout/write=1>
+options	<SR 630>	<timeout/read=5.0>
+alias	<SR 630>	<SR630>
+
+<Newport MM 4005>	network-client-newport
+options	<Newport MM 4005>	<target=TestHost0,port=10107>
+options	<Newport MM 4005>	<retry=10>
+options	<Newport MM 4005>	<timeout/write=1>
+options	<Newport MM 4005>	<timeout/read=5.0>
+alias	<Newport MM 4005>	<MS>
+alias	<Newport MM 4005>	<MotionStage>
+alias	<Newport MM 4005>	<Newport>
+
+<Electrometer>	network-client-electrometer
+options	<Electrometer>	<target=TestHost0,port=10109>
+options	<Electrometer>	<retry=10>
+options	<Electrometer>	<timeout/write=1>
+options	<Electrometer>	<timeout/read=5.0>
+alias	<Electrometer>	<ke617>
+
+<Integrating Sphere>	network-client-labsphere
+options	<Integrating Sphere>	<target=TestHost0,port=10108>
+options	<Integrating Sphere>	<retry=10>
+options	<Integrating Sphere>	<timeout/write=1>
+options	<Integrating Sphere>	<timeout/read=5.0>
+alias	<Integrating Sphere>	<Sphere>
+
+options	<Sequencer>    		<enable>
+options	<Monochromator>		<enable>
+options	<Temperature Mon>	<enable>
+options	<Filter Wheel 12>	<enable>
+options	<Filter Wheel 13>	<enable>
+options	<SR 630>		<enable>
+options	<Newport MM 4005>	<enable>
+options	<Electrometer>		<enable>
+options	<Integrating Sphere>	<enable>
+
+exit
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d7 70
+a76 69
+<Monochromator I/F>	network-client-monochromator
+options	<Monochromator I/F>	<target=TestHost0,port=10103>
+options	<Monochromator I/F>	<retry=10>
+options	<Monochromator I/F>	<timeout/write=1>
+options	<Monochromator I/F>	<timeout/read=5.0>
+alias	<Monochromator I/F>	<Monochromator>
+alias	<Monochromator I/F>	<Mono>
+
+<Temperature Monitor>	network-client-tempmon
+options	<Temperature Monitor>	<target=TestHost0,port=10200>
+options	<Temperature Monitor>	<retry=10>
+options	<Temperature Monitor>	<timeout/write=0.2>
+options	<Temperature Monitor>	<timeout/read=0.5>
+alias	<Temperature Monitor>	<TempMon>
+
+<Filter Wheel 12 I/F>	network-client-filterwheel
+options	<Filter Wheel 12 I/F>	<target=TestHost0,port=10104>
+options	<Filter Wheel 12 I/F>	<retry=10>
+options	<Filter Wheel 12 I/F>	<timeout/write=1>
+options	<Filter Wheel 12 I/F>	<timeout/read=5.0>
+alias	<Filter Wheel 12 I/F>	<fw-12>
+alias	<Filter Wheel 12 I/F>	<fw1>
+
+<Filter Wheel 13 I/F>	network-client-filterwheel
+options	<Filter Wheel 13 I/F>	<target=TestHost0,port=10105>
+options	<Filter Wheel 13 I/F>	<retry=10>
+options	<Filter Wheel 13 I/F>	<timeout/write=1>
+options	<Filter Wheel 13 I/F>	<timeout/read=5.0>
+alias	<Filter Wheel 13 I/F>	<fw-13>
+alias	<Filter Wheel 13 I/F>	<fw2>
+
+<SR 630 I/F>	network-client-sr630
+options	<SR 630 I/F>	<target=TestHost0,port=10106>
+options	<SR 630 I/F>	<retry=1000>
+options	<SR 630 I/F>	<timeout/write=1>
+options	<SR 630 I/F>	<timeout/read=5.0>
+alias	<SR 630 I/F>	<SR630>
+
+<Newport MM 4005 I/F>	network-client
+options	<Newport MM 4005 I/F>	<target=TestHost0,port=10107>
+options	<Newport MM 4005 I/F>	<retry=1000>
+options	<Newport MM 4005 I/F>	<timeout/write=1>
+options	<Newport MM 4005 I/F>	<timeout/read=5.0>
+alias	<Newport MM 4005 I/F>	<MS>
+alias	<Newport MM 4005 I/F>	<MotionStage>
+
+<Integrating Sphere I/F>	network-client
+options	<Integrating Sphere I/F>	<target=TestHost0,port=10108>
+options	<Integrating Sphere I/F>	<retry=1000>
+options	<Integrating Sphere I/F>	<timeout/write=1>
+options	<Integrating Sphere I/F>	<timeout/read=5.0>
+alias	<Integrating Sphere I/F>	<Sphere>
+
+<Electrometer I/F>	network-client
+options	<Electrometer I/F>	<target=TestHost0,port=10109>
+options	<Electrometer I/F>	<retry=1000>
+options	<Electrometer I/F>	<timeout/write=1>
+options	<Electrometer I/F>	<timeout/read=5.0>
+alias	<Electrometer I/F>	<ke617>
+
+options	<Sequencer I/F>    	<enable>
+options	<Monochromator I/F>	<disable>
+options	<Temperature Monitor>	<disable>
+options	<Filter Wheel 12 I/F>	<disable>
+options	<Filter Wheel 13 I/F>	<disable>
+options	<SR 630 I/F>		<enable>
+options	<Newport MM 4005 I/F>	<disable>
+options	<Integrating Sphere I/F>	<disable>
+options	<Electrometer I/F>	<disable>
+@

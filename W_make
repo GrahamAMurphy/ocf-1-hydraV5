@@ -1,0 +1,6 @@
+#!/bin/csh -f
+
+while( 1 )
+    cmptime *.c *.cc *.h Makefile
+    make
+end

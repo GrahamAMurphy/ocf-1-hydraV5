@@ -1,0 +1,414 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.10.1597
+	murphy:5.1.8.1589
+	murphy:5.1.9.1593; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1
+	5.1.9.1593
+	5.1.10.1597;
+next	1.7;
+
+1.7
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2004.06.29.12.44.58;	author murphy;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2004.06.09.16.15.10;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.06.04.23.55.13;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.05.03.11.54.25;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	5.1.8.1589;
+
+5.1.8.1589
+date	2014.11.11.15.17.36;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.9.1593
+date	2015.01.07.19.14.24;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.10.1597
+date	2015.07.28.16.07.19;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Does minimal work to setup the keyboard to handle suspend
+characters and console commanding, if any.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "main.h"
+#include "stream.h"
+#include "keyboard.h"
+
+static Keyboard *the_keyboard = 0 ;
+
+Keyboard::Keyboard()
+{
+    inited = true ;
+    the_keyboard = this ;
+    devtypestring = "Keyboard" ;
+    setFd( 0 ) ;
+    DODBG(9)(DBGDEV, "Leaving keyboard constructor.\n" ) ;
+}
+
+void Keyboard::StartOps( void )
+{
+    Keyboard::InitializeKeyboard() ;
+    DODBG(9)(DBGDEV, "Keyboard initialized.\n" ) ;
+}
+
+static struct {
+    int control, value ;
+} s_controls[] = {
+    { VQUIT, 034 }, /* Adopt telnet ^] for suspend. */
+    { VSUSP, 035 }, /* Adopt telnet ^] for suspend. */
+    { VSTART, 0 }, /* I think we could use ^Q on this side. */
+    { VSTOP,  0 } /* I think we could use ^S on this side. */
+} ;
+
+void ProcessContinued( int dummy ) ;
+
+static int saw_a_suspend = false ;
+void ProcessSuspended( int dummy )
+{
+    signal( SIGTSTP, ProcessSuspended ) ;
+    signal( SIGCONT, ProcessContinued ) ;
+    DODBG(9)(DBGDEV, "Suspending process.\n" ) ;
+
+    saw_a_suspend = true ;
+    signal( SIGTSTP, SIG_DFL ) ;
+
+    #ifdef DSIGRESTART // this doesn't appear to work on Cygwin ...
+    siginterrupt( SIGTSTP, iSigRestart ) ;
+    siginterrupt( SIGCONT, iSigRestart ) ;
+    #endif
+
+    if( the_keyboard ) the_keyboard->ResetKeyboard() ;
+
+    kill( getpid(), SIGTSTP ) ;
+}
+
+void ProcessContinued( int dummy )
+{
+    signal( SIGTSTP, ProcessSuspended ) ;
+    signal( SIGCONT, ProcessContinued ) ;
+
+    #ifdef DSIGRESTART // this doesn't appear to work on Cygwin ...
+    siginterrupt( SIGTSTP, iSigRestart ) ;
+    siginterrupt( SIGCONT, iSigRestart ) ;
+    #endif
+
+    if( saw_a_suspend ) {
+	if( the_keyboard ) the_keyboard->InitializeKeyboard() ;
+    }
+    saw_a_suspend = false ;
+
+}
+
+void Keyboard::InitializeKeyboard( void )
+{
+    int status ;
+    u_int dcc ;
+
+    signal( SIGTSTP, ProcessSuspended ) ;
+    signal( SIGCONT, ProcessContinued ) ;
+
+    #ifdef DSIGRESTART // this doesn't appear to work on Cygwin ...
+    siginterrupt( SIGTSTP, iSigRestart ) ;
+    siginterrupt( SIGCONT, iSigRestart ) ;
+    #endif
+
+    if( inited ) {
+/*  Set up keyboard to use raw mode but with signals */
+        status = tcgetattr( 0, &ncontrl ) ;
+
+        memcpy( (void*)&scontrl, (void*)&ncontrl, sizeof(ncontrl) ) ;
+        memcpy( (void*)&save_contrl, (void*)&ncontrl, sizeof(ncontrl) ) ;
+
+        for( dcc = 0 ; dcc < ELEMENTS(s_controls) ; dcc++ ) {
+            int scc = s_controls[dcc].control ;
+            if( s_controls[dcc].value == 0 )
+                s_controls[dcc].value = ncontrl.c_cc[scc] ;
+        }
+        memset( ncontrl.c_cc, '\377', NCCS ) ;
+
+        for( dcc = 0 ; dcc < ELEMENTS(s_controls) ; dcc++ ) {
+            int scc = s_controls[dcc].control ;
+            ncontrl.c_cc[scc] = s_controls[dcc].value ;
+        }
+
+        ncontrl.c_cc[VMIN] = 1 ;
+        ncontrl.c_cc[VTIME] = 0 ;
+
+        ncontrl.c_lflag = ISIG ;
+        ncontrl.c_line = 0 ;
+        // ncontrl.c_iflag &= ~(ICRNL) ;
+        inited = false ;
+    }
+
+    status = tcsetattr( 0, TCSANOW, &ncontrl ) ;
+    if( status == -1 ) perror("ioctl:inp") ;
+}
+
+void Keyboard::HandleRx( void )
+{
+    int nread ;
+    int unused = 0 ;
+    u_char buffer[256] ;
+    nread = read( 0, buffer, 256 ) ;
+    if( buffer[0] == 'q' ) {
+	DODBG(0)( DBGDEV, "Exiting.\r\n" ) ;
+	bRunning = false ;
+    }
+    for( int i = 0 ; i < nread ; i++ ) {
+	if( buffer[i] == '' ) { RequestDebug(0) ; break ; }
+	if( buffer[i] == '' ) { ResetAllRetries() ; break ; }
+	if( buffer[i] == '' ) { RequestDebug(SIGUSR1) ; break ; }
+	if( buffer[i] == '' ) { RequestDebug(SIGUSR2) ; break ; }
+	if( buffer[i] == 'q' ) { bRunning = false ; break ; }
+	if( buffer[i] == 'Q' ) { bRunning = false ; break ; }
+	unused++ ;
+    }
+    if( unused ) {
+	DisplayKeyboardCommands() ;
+    }
+}
+
+void Keyboard::ResetKeyboard( void )
+{
+    int status = tcsetattr( 0, TCSANOW, &save_contrl ) ;
+    if( status == -1 ) perror("ioctl:inp") ;
+}
+@
+
+
+5.1.10.1597
+log
+@5.1.10.1597
+@
+text
+@d143 1
+a143 1
+	if( buffer[i] == 'Q' ) { bRunning = false ; bDoRestart = true ; break ; }
+@
+
+
+5.1.9.1593
+log
+@5.1.9.1593
+@
+text
+@d143 1
+a143 1
+	if( buffer[i] == 'Q' ) { bRunning = false ; bDoRestart = true ; break ; }
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+5.1.8.1589
+log
+@5.1.8.1589
+@
+text
+@d143 1
+a143 1
+	if( buffer[i] == 'Q' ) { bRunning = false ; bDoRestart = true ; break ; }
+@
+
+
+1.7
+log
+@Working system. Backing up.
+@
+text
+@d51 1
+d54 8
+d69 6
+d79 1
+d90 5
+d100 1
+d108 1
+d130 1
+d135 1
+a135 1
+	running = false ;
+d139 1
+d142 3
+d146 9
+@
+
+
+1.6
+log
+@Working Version. SRS630 included.
+@
+text
+@a23 1
+    SetgCanRead( true ) ;
+d69 1
+a69 1
+    int dcc ;
+@
+
+
+1.5
+log
+@Found bug in queue handling. Depend upon labview timeout.
+@
+text
+@d115 1
+a115 1
+	if( buffer[i] == '' ) { RequestDebug(0) ; break ; }
+d117 1
+a117 1
+	if( buffer[i] == '' ) { RequestDebug(SIGUSR2) ; break ; }
+@
+
+
+1.4
+log
+@Making changes to debug level
+@
+text
+@d116 2
+a117 10
+	if( buffer[i] == '' ) { 
+	    DbgLevel++ ; 
+	    DODBG(0)(DBGDEV, "Debug level = %d\n", DbgLevel ) ;
+	    break ; 
+	}
+	if( buffer[i] == '' ) { 
+	    if( --DbgLevel < 0 ) DbgLevel = 0 ;
+	    DODBG(0)(DBGDEV, "Debug level = %d\n", DbgLevel ) ;
+	    break ; 
+	}
+@
+
+
+1.3
+log
+@Working.
+@
+text
+@d26 1
+a26 1
+    DOLOG(9)(LOGDEV, "Leaving keyboard constructor.\n" ) ;
+d32 1
+a32 1
+    DOLOG(9)(LOGDEV, "Keyboard initialized.\n" ) ;
+d38 1
+d51 1
+a51 1
+    DOLOG(9)(LOGDEV, "Suspending process.\n" ) ;
+d111 1
+a111 1
+	DOLOG(0)( LOGDEV, "Exiting.\r\n" ) ;
+d115 11
+a125 3
+	if( buffer[i] != '' ) continue ;
+	RequestDebug(0) ;
+	break ;
+@
+
+
+1.2
+log
+@Working. Supports SR630.
+@
+text
+@d13 1
+d23 1
+d111 6
+a116 1
+	exit(0) ;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a9 2
+#define FILE_H_NEED (4)
+
+a20 1
+    std::cout << "In keyboard constructor.\n" ;
+d24 1
+d30 1
+a30 1
+    std::cout << "Keyboard initialized.\n" ;
+d48 1
+a48 1
+    std::cerr << "Suspending process.\n" ;
+d107 4
+a110 2
+    DOLOG(0)( LOGDEV, "Exiting.\n" ) ;
+    exit(0) ;
+@

@@ -1,0 +1,2 @@
+#!/bin/csh -f
+exec hydra --http 8000 --debug-dir DEBUG $*

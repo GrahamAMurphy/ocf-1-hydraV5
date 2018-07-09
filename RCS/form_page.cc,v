@@ -1,0 +1,178 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.1;
+
+1.1
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Working system. Backing up.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@static char long_form[] =
+"<HTML>\r\n"
+"<HEAD>\r\n"
+"<TITLE>Update</TITLE>\r\n"
+"<style type=\"text/css\">\r\n"
+"input { font: 10px }\r\n"
+"</style>\r\n"
+
+"<script language=\"javascript\">\r\n"
+"<!-- comment for old browsers ... yeah, right.\r\n"
+"function repack(anyform) {\r\n"
+"    var output = anyform.pt1.value + anyform.pt2.value ;\r\n"
+"    document.oneform.INPUT.value = output ;\r\n"
+"    document.oneform.submit() ;\r\n"
+"    return false ;\r\n"
+"}\r\n"
+"</script>\r\n"
+"</HEAD>\r\n"
+"\r\n"
+"<BODY>\r\n"
+"<FORM ACTION=\"/query.html\" NAME=\"oneform\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"\">\r\n"
+"</FORM>\r\n"
+
+"<form method=get name=\"form2\" onSubmit=\"return repack(form2);\"\r\n"
+"    action=\"/query.html\" >\r\n"
+"Request\r\n"
+"<select name=\"pt1\">\r\n"
+"<option value=\"vnir_nb_filter get\"> VNIR NB Filterwheel </option>\r\n"
+"<option value=\"uv_nd_filter get\"> UV ND Filterwheel </option>\r\n"
+"<option value=\"ir_nb_filter get\"> IR NB Filterwheel </option>\r\n"
+"<option value=\"ms position get\"> Newport Motion Stage Position </option>\r\n"
+"<option value=\"unidex position get\"> Unidex 511 Beamscanner Position </option>\r\n"
+"<option value=\"monochromator wlen get\"> Monochromator Wavelength (nm) </option>\r\n"
+"<option value=\"monochromator filter get\"> Monochromator Filterwheel </option>\r\n"
+"</select>\r\n"
+"position\r\n"
+"<input type=hidden name=\"pt2\" value=\"\">\r\n"
+"<input type=submit value=\"Query\">\r\n"
+"</form>\r\n"
+"<form method=get name=\"form1\" onSubmit=\"return repack(form1);\"\r\n"
+"    action=\"/query.html\" >\r\n"
+"Move \r\n"
+"<select name=\"pt1\">\r\n"
+"<option value=\"ms yaw goto \"> Newport Motion Stage Yaw </option>\r\n"
+"<option value=\"ms pitch goto \"> Newport Motion Stage Pitch </option>\r\n"
+"<option value=\"ms translation goto \"> Newport Motion Stage Translation </option>\r\n"
+"<option value=\"unidex x goto \"> Unidex 511 Beamscanner X </option>\r\n"
+"<option value=\"unidex y goto \"> Unidex 511 Beamscanner Y </option>\r\n"
+"<option value=\"vnir_nb_filter goto \"> VNIR NB Filterwheel </option>\r\n"
+"<option value=\"uv_nd_filter goto \"> UV ND Filterwheel </option>\r\n"
+"<option value=\"ir_nb_filter goto \"> IR NB Filterwheel </option>\r\n"
+"<option value=\"monochromator wlen goto \"> Monochromator Wavelength (nm) </option>\r\n"
+"<option value=\"monochromator filter goto \"> Monochromator Filterwheel </option>\r\n"
+"</select>\r\n"
+"to position\r\n"
+"<input type=text name=\"pt2\" value=\"\" size=\"8\">\r\n"
+"<input type=submit value=\"Go!\">\r\n"
+"</form>\r\n"
+"<form method=get name=\"form3\" onSubmit=\"return repack(form3);\"\r\n"
+"    action=\"/query.html\" >\r\n"
+"Shift \r\n"
+"<select name=\"pt1\">\r\n"
+"<option value=\"ms yaw move \"> Newport Motion Stage Yaw </option>\r\n"
+"<option value=\"ms pitch move \"> Newport Motion Stage Pitch </option>\r\n"
+"<option value=\"ms translation move \"> Newport Motion Stage Translation </option>\r\n"
+"<option value=\"unidex x move \"> Unidex 511 Beamscanner X </option>\r\n"
+"<option value=\"unidex y move \"> Unidex 511 Beamscanner Y </option>\r\n"
+"</select>\r\n"
+"by \r\n"
+"<input type=text name=\"pt2\" value=\"\" size=\"8\">\r\n"
+"<input type=submit value=\"Move!\">\r\n"
+"</form>\r\n"
+"<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"Force Monochromator Reconnect \">\r\n"
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"monochromator reconnect\">\r\n"
+"</FORM>\r\n"
+"<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"CMD\">\r\n"
+"<INPUT TYPE=\"TEXT\" NAME=\"INPUT\" VALUE=\"\" SIZE=\"48\">\r\n"
+"</FORM>\r\n"
+"\r\n"
+"<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"Open Attenuator\">\r\n"
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"sphere attenuator 1 set 0\">\r\n"
+// "</FORM>\r\n"
+// "<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"Close Attenuator\">\r\n"
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"sphere attenuator 1 set 255\">\r\n"
+"</FORM>\r\n"
+"\r\n"
+"\r\n"
+"</body>\r\n"
+"</html>\r\n" ;
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 1
+a1 1
+char long_form[] =
+a24 9
+"<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"Open Attenuator\">\r\n"
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"sphere attenuator 1 set 0\">\r\n"
+"</FORM>\r\n"
+"<FORM ACTION=\"/query.html\" METHOD=\"GET\">\r\n"
+"<INPUT TYPE=\"SUBMIT\" VALUE=\"Close Attenuator\">\r\n"
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"sphere attenuator 1 set 255\">\r\n"
+"</FORM>\r\n"
+"\r\n"
+d32 4
+a35 2
+"<option value=\"ms position get\"> Motion Stage Position </option>\r\n"
+"<option value=\"mono wlen get\"> Monochromator Wavelength (nm) </option>\r\n"
+d43 1
+a43 1
+"Send\r\n"
+d45 5
+d53 2
+a54 4
+"<option value=\"ms yaw goto \"> Motion Stage Yaw </option>\r\n"
+"<option value=\"ms pitch goto \"> Motion Stage pitch </option>\r\n"
+"<option value=\"ms translation goto \"> Motion Stage Translation </option>\r\n"
+"<option value=\"mono wlen goto \"> Monochromator Wavelength (nm) </option>\r\n"
+d58 14
+d76 1
+a76 1
+"<INPUT TYPE=\"HIDDEN\" NAME=\"INPUT\" VALUE=\"mono reconnect\">\r\n"
+d81 9
+@

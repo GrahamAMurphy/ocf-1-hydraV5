@@ -1,0 +1,255 @@
+head	5.1;
+access;
+symbols;
+locks
+	murphy:5.1.8.1; strict;
+comment	@// @;
+
+
+5.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches
+	5.1.8.1;
+next	1.3;
+
+1.3
+date	2004.09.10.11.42.44;	author murphy;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2004.07.12.18.08.57;	author murphy;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2004.06.30.17.50.08;	author murphy;	state Exp;
+branches;
+next	;
+
+5.1.8.1
+date	2014.11.11.12.11.56;	author murphy;	state Exp;
+branches;
+next	;
+
+
+desc
+@Found bug in queue handling. Depend upon labview timeout.
+@
+
+
+5.1
+log
+@5.1
+@
+text
+@#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termio.h>
+#include <unistd.h>
+#include <sys/types.h>
+
+#include <iostream>
+
+#pragma implementation
+
+#include "global.h"
+#include "stream.h"
+#include "thermalserver.h"
+#include "support.h"
+
+static u_char uc_temp_names[64][128] ;
+
+ThermalServer::ThermalServer( void )
+{
+    devtype = TypeThermalServer ;
+    devtypestring = "ThermalServer" ;
+    uc_temp_file = 0 ;
+    names_read = false ;
+    for( int i = 0 ; i < 64 ; i++ )
+	snprintf( CP uc_temp_names[i], 128, "Temp %d", i ) ;
+
+    DODBG(9)(DBGDEV, "Leaving thermal server constructor.\n" ) ;
+}
+
+int ThermalServer::Parse( u_char *key, u_char *value )
+{
+    if( strcasecmp( CP key, "names" ) == 0 ) {
+	uc_temp_file = UCP strdup( CP value ) ;
+	return( true ) ;
+    }
+    
+    return( Server::Parse( key, value ) ) ;
+}
+
+void ThermalServer::ReadInTempNames( void )
+{
+    FILE *inp = fopen( CP uc_temp_file, "r" ) ;
+    if( ! inp ) return ;
+
+    u_char line[256], t_use[256] ;
+    u_char *status ;
+    int w_temp ;
+    int n_read = 0 ;
+
+    while( 1 ) {
+	status = UCP fgets( CP line, 256, inp ) ;
+	if( ! status ) break ;
+	int nscan = sscanf( CP line, "%*[^\t]\t%d\t\"%[^\"]", &w_temp, t_use ) ;
+	if( nscan != 2 ) break ;
+	fprintf( stderr, "temps= %d -> %s\n", w_temp, t_use ) ;
+	if( w_temp < 0 || w_temp > 63 ) continue ;
+
+	strncpy( CP uc_temp_names[w_temp], CP t_use, 128 ) ;
+	n_read++ ;
+    }
+    if( n_read > 0 )
+	names_read = true ;
+}
+
+void ThermalServer::StartOps( void )
+{
+    DODBG(9)(DBGDEV, "ThermalServer being started up.\n" ) ;
+    mStatus = OCF_Status->RequestStatus( 64 ) ; // debug info.
+    if( uc_temp_file ) ReadInTempNames() ;
+
+    StartThread() ;
+    DODBG(9)(DBGDEV, "ThermalServer has started.\n" ) ;
+}
+
+#define D_SYNC_0xFA	(0xfa)
+#define D_SYNC_0xF3	(0xf3)
+
+static union {
+    u_char uc_val[8] ;
+    double d_val ;
+    u_long ul_val ;
+} swaps ;
+
+void ThermalServer::ServerActive( void )
+{
+    n_cmds = 0 ;
+    rx_pnt = 0 ;
+    int nread ;
+    u_long ship_doubles ;
+    u_char *p_key, s_value[256] ;
+    double dMET = 0 ;
+
+    while( 1 ) {
+	nread = read( fd, buff_rx, 1 ) ;
+	if( nread <= 0 ) { Disconnect() ; return ; }
+	if( buff_rx[0] != D_SYNC_0xFA ) continue ;
+
+	nread = read( fd, buff_rx, 1 ) ;
+	if( nread <= 0 ) { Disconnect() ; return ; }
+	if( buff_rx[0] != D_SYNC_0xF3 ) continue ;
+
+	nread = read( fd, buff_rx, 4 ) ;
+	if( nread <= 3 ) { Disconnect() ; return ; }
+
+	for( int i = 0 ; i < 4 ; i++ )
+	    swaps.uc_val[3-i] = buff_rx[i] ;
+	ship_doubles = swaps.ul_val ;
+
+	DODBG(4)(DBGDEV, "Receiving %ld doubles.\n", ship_doubles ) ;
+	if( ship_doubles > 64 ) { Disconnect() ; return ; }
+
+	for( u_int w_d = 0 ; w_d < ship_doubles ; w_d++ ) {
+	    nread = read( fd, buff_rx, 8 ) ;
+	    if( nread <= 7 ) { Disconnect() ; return ; }
+
+	    for( int j = 0 ; j < 8 ; j++ )
+		swaps.uc_val[7-j] = buff_rx[j] ;
+
+	    if( w_d == 0 ) {
+		p_key = UCP "MET" ;
+		dMET = swaps.d_val ;
+		snprintf( CP s_value, sizeof(s_value), "%.0f", swaps.d_val );
+	    } else {
+		p_key = uc_temp_names[w_d] ;
+		snprintf( CP s_value, sizeof(s_value), "%.3f", swaps.d_val );
+	    }
+	    OCF_Status->AddStatus( mStatus+w_d, name, p_key, s_value ) ;
+	}
+	char c_status[256] ;
+        snprintf( c_status, 256, "%ld doubles stamped %.0f", ship_doubles, dMET);
+	StatusLog->L_Write_U( name, "INFO", c_status ) ;
+    }
+}
+
+@
+
+
+5.1.8.1
+log
+@5.1.8.1
+@
+text
+@@
+
+
+1.3
+log
+@Working system. Backing up.
+@
+text
+@d80 1
+a80 1
+union {
+@
+
+
+1.2
+log
+@Working Version. SRS630 included.
+@
+text
+@d111 1
+a111 1
+	DODBG(4)(DBGDEV, "Receiving %d doubles.\n", ship_doubles ) ;
+d114 1
+a114 1
+	for( int w_d = 0 ; w_d < ship_doubles ; w_d++ ) {
+d132 1
+a132 1
+        snprintf( c_status, 256, "%d doubles stamped %.0f", ship_doubles, dMET);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d18 2
+a21 2
+    port_set = false ;
+    bind_fail_exit = true ;
+d24 4
+a27 3
+    n_cmds = 0 ;
+    strcpy( CP from_ip, "" ) ;
+    server_state = 0 ;
+d32 54
+d89 6
+d96 34
+a129 8
+	int nread = read( fd, buff_rx+rx_pnt, RX_BUFFSZ-rx_pnt ) ;
+	if( nread <= 0 ) {
+	    // perror( CP name ) ;
+	    DODBG(0)(DBGDEV, "Connection to server was terminated. \n" ) ;
+	    shutdown( fd, 2 ) ;
+	    close( fd) ;
+	    fd= -1 ;
+	    return ;
+d131 3
+a133 5
+
+	for( int i = 0 ; i < rx_pnt+nread ; i++ ) 
+	    fprintf( stderr, "%02x/", buff_rx[i] ) ;
+	fprintf( stderr, " %d\n", nread ) ;
+	rx_pnt = 0 ;
+d136 1
+@

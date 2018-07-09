@@ -1,0 +1,2 @@
+#!/bin/csh -f
+exec hydra --http 8000 --config config.sussi --target sri-ocf-1 --debug-dir DEBUG $*
